@@ -308,7 +308,7 @@ class Type84RGB:
             "TX: "
             + " ".join(
                 f"{x:02X}"
-                for x in packet[:16]
+                for x in packet
             )
             + " ..."
         )
