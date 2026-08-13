@@ -344,7 +344,7 @@ class Type84RGB:
         packet[13] = 0x00
         packet[14] = 0x00
         packet[15] = 0x05
-        packet[16] = 0x03
+        packet[16] = 0x00
         packet[17] = 0x00
         packet[18] = 0x00
         packet[19] = 0x00
