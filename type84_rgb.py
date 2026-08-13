@@ -348,7 +348,7 @@ class Type84RGB:
         packet[20] = 0x00
         packet[21] = 0xAA
         packet[22] = 0x55
-    return packet
+        return packet
 
     def set_static(self, r, g, b):
 
