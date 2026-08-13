@@ -302,7 +302,7 @@ class Type84RGB:
                 "HID report должен быть 64 байта"
             )
 
-        result = self.device.write(packet)
+        result = self.device.write([0] + packet)
 
         self.log(
             "TX: "
