@@ -302,7 +302,7 @@ class Type84RGB:
                 "HID report должен быть 64 байта"
             )
 
-        result = self.device.write(packet)
+        result = self.device.write([0] + packet)
 
         self.log(
             "TX: "
@@ -323,20 +323,35 @@ class Type84RGB:
     # Static RGB
     # ---------------------------------------------------------
 
-    def make_static(self, r, g, b):
-
-        packet = [0] * REPORT_SIZE
-
-        packet[0] = REPORT_ID
-        packet[1] = CMD_RGB_STATIC
-
-        packet[2] = ZONE_KEYS
-
-        packet[3] = r
-        packet[4] = g
-        packet[5] = b
-
-        return packet
+   def make_static(self, r, g, b):
+       packet = [0] * 64
+       packet[0] = 0xAA
+       packet[1] = 0x23
+       packet[2] = 0x10
+       packet[3] = 0x00
+       packet[4] = 0x00
+       packet[5] = 0x01
+       packet[6] = 0x00
+       packet[7] = 0x01
+       
+       packet[8] = r
+       packet[9] = g
+       packet[10] = b
+       packet[11] = 0xFF
+       
+       packet[12] = 0x00
+       packet[13] = 0x00
+       packet[14] = 0x00
+       packet[15] = 0x05
+       packet[16] = 0x03
+       packet[17] = 0x00
+       packet[18] = 0x00
+       packet[19] = 0x00
+       
+       packet[20] = 0xAA
+       packet[21] = 0x55
+       
+       return packet
 
     def set_static(self, r, g, b):
 
