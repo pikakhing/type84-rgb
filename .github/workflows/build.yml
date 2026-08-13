@@ -17,17 +17,38 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Check files
+        shell: pwsh
+        run: |
+          Write-Host "Files in repository:"
+          Get-ChildItem -Recurse
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install hidapi pyinstaller
+          python -m pip install hidapi pyinstaller
+
+      - name: Check Python
+        run: |
+          python --version
+          python -c "import hid; print('hidapi OK')"
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name Type84_RGB type84_rgb.py
+          python -m PyInstaller --onefile --windowed --name Type84_RGB type84_rgb.py
+
+      - name: Check EXE
+        shell: pwsh
+        run: |
+          if (Test-Path "dist\Type84_RGB.exe") {
+            Write-Host "EXE successfully created!"
+            Get-Item "dist\Type84_RGB.exe"
+          } else {
+            Write-Error "EXE was not created."
+          }
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: Type84_RGB_Windows
-          path: dist/Type84_RGB.exe
+          path: dist\Type84_RGB.exe
