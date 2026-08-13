@@ -171,7 +171,7 @@ class Type84RGB:
 
     def log(self, text):
         self.log_box.config(state="normal")
-        self.log_box.insert("end", text + "\n)
+        self.log_box.insert("end", text + "\n")
         self.log_box.see("end")
         self.log_box.config(state="disabled")
 
