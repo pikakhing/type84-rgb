@@ -5,6 +5,10 @@ import threading
 import time
 
 
+# ============================================================
+# DEVICE
+# ============================================================
+
 VID = 0x0C45
 PID = 0x8009
 
@@ -14,40 +18,14 @@ USAGE = 0x61
 
 REPORT_SIZE = 64
 
-
-# =========================================================
-# ЗАДЕРЖКИ
-# =========================================================
-
-# Для Per-Key сейчас оставляем 20 мс,
-# потому что с этой задержкой передача идёт
-# стабильно и похоже на официальную.
-PER_KEY_DELAY = 0.020
-
-STATIC_DELAY = 0.004
+# Задержка между HID OUT.
+# По твоему тесту 20 мс работает нормально.
+PACKET_DELAY = 0.020
 
 
-# =========================================================
-# STATIC / USER MODE
-# =========================================================
-
-MODE_STATIC = 0x01
-MODE_USER = 0x80
-
-
-# =========================================================
-# PER-KEY AA 24
-# =========================================================
-
-PER_KEY_COUNT = 128
-
-PER_KEY_HEADER = 0xAA
-PER_KEY_COMMAND = 0x24
-PER_KEY_SUBCOMMAND = 0x38
-
-PER_KEY_LAST_COMMAND = 0x08
-PER_KEY_LAST_OFFSET = 0x01
-
+# ============================================================
+# TYPE 84 RGB
+# ============================================================
 
 class Type84RGB:
 
@@ -55,48 +33,32 @@ class Type84RGB:
 
         self.root = root
 
-        self.root.title(
-            "Red Square IO Type 84 RGB"
-        )
-
-        self.root.geometry(
-            "820x760"
-        )
+        self.root.title("Red Square IO Type 84 RGB")
+        self.root.geometry("760x700")
 
         self.device = None
         self.device_info = None
 
         self.running = False
+        self.per_key_cycle_running = False
 
-        self.background = (
-            255,
-            0,
-            0
-        )
+        # Цвет всей клавиатуры
+        self.background = (255, 0, 0)
 
-        # -------------------------------------------------
-        # 128 LED entries
-        # -------------------------------------------------
-
-        self.key_colors = [
-            (0, 0, 0)
-            for _ in range(PER_KEY_COUNT)
-        ]
-
-        self.selected_key = 0
-
-        self.selected_color = (
-            255,
-            0,
-            0
-        )
+        # Состояние всех 128 протокольных LED.
+        #
+        # None = выключен
+        # (R,G,B) = цвет
+        #
+        # ВАЖНО:
+        # индекс здесь именно протокольный индекс 0..127.
+        self.key_colors = [None] * 128
 
         self.build_ui()
 
-
-    # =====================================================
+    # ========================================================
     # UI
-    # =====================================================
+    # ========================================================
 
     def build_ui(self):
 
@@ -105,399 +67,254 @@ class Type84RGB:
             text="Red Square IO Type 84 RGB",
             font=("Segoe UI", 18, "bold")
         )
-
-        title.pack(
-            pady=(18, 5)
-        )
-
+        title.pack(pady=(18, 5))
 
         ttk.Label(
             self.root,
             text="USB 0C45:8009 • MI_02 • FF68/61"
         ).pack()
 
-
         self.status = tk.StringVar(
             value="Устройство не подключено"
         )
-
 
         ttk.Label(
             self.root,
             textvariable=self.status,
             font=("Segoe UI", 11)
-        ).pack(
-            pady=12
-        )
+        ).pack(pady=12)
 
-
-        # =================================================
+        # ----------------------------------------------------
         # DEVICE
-        # =================================================
+        # ----------------------------------------------------
 
-        top = ttk.Frame(
-            self.root
+        device_frame = ttk.LabelFrame(
+            self.root,
+            text="Устройство"
         )
-
-        top.pack(
+        device_frame.pack(
             fill="x",
-            padx=30
+            padx=30,
+            pady=5
         )
-
 
         ttk.Button(
-            top,
+            device_frame,
             text="1. Найти клавиатуру",
             command=self.scan
         ).pack(
             fill="x",
-            pady=4
+            padx=10,
+            pady=5
         )
 
-
         ttk.Button(
-            top,
+            device_frame,
             text="2. Подключить MI_02",
             command=self.connect
         ).pack(
             fill="x",
-            pady=4
+            padx=10,
+            pady=(0, 8)
         )
 
+        # ----------------------------------------------------
+        # WHOLE KEYBOARD
+        # ----------------------------------------------------
 
-        # =================================================
-        # РЕЖИМ ВСЕЙ КЛАВИАТУРЫ
-        # =================================================
-
-        ttk.Separator(
+        keyboard_frame = ttk.LabelFrame(
             self.root,
-            orient="horizontal"
-        ).pack(
+            text="Вся клавиатура"
+        )
+        keyboard_frame.pack(
             fill="x",
             padx=30,
-            pady=15
-        )
-
-
-        ttk.Label(
-            self.root,
-            text="ВСЯ КЛАВИАТУРА",
-            font=("Segoe UI", 12, "bold")
-        ).pack()
-
-
-        whole_keyboard = ttk.Frame(
-            self.root
-        )
-
-        whole_keyboard.pack(
-            pady=8
-        )
-
-
-        ttk.Button(
-            whole_keyboard,
-            text="🎨 Выбрать цвет",
-            command=self.choose_background
-        ).grid(
-            row=0,
-            column=0,
-            padx=5
-        )
-
-
-        ttk.Button(
-            whole_keyboard,
-            text="🎯 Статический режим",
-            command=self.set_static_mode
-        ).grid(
-            row=0,
-            column=1,
-            padx=5
-        )
-
-
-        ttk.Button(
-            whole_keyboard,
-            text="🔧 Пользовательский режим",
-            command=self.set_user_mode
-        ).grid(
-            row=0,
-            column=2,
-            padx=5
-        )
-
-
-        ttk.Button(
-            self.root,
-            text="🌈 Цикл всей клавиатуры",
-            command=self.toggle_cycle
-        ).pack(
             pady=10
         )
 
-
-        # =================================================
-        # PER KEY
-        # =================================================
-
-        ttk.Separator(
-            self.root,
-            orient="horizontal"
+        ttk.Button(
+            keyboard_frame,
+            text="🎨 Выбрать цвет всей клавиатуры",
+            command=self.choose_background
         ).pack(
             fill="x",
+            padx=10,
+            pady=5
+        )
+
+        ttk.Button(
+            keyboard_frame,
+            text="👤 Переключить в пользовательский режим",
+            command=self.set_user_mode
+        ).pack(
+            fill="x",
+            padx=10,
+            pady=5
+        )
+
+        ttk.Label(
+            keyboard_frame,
+            text=(
+                "Пользовательский режим:\n"
+                "AA 23 10 00 00 00 01 00 80 ..."
+            )
+        ).pack(
+            pady=(2, 8)
+        )
+
+        # ----------------------------------------------------
+        # PER KEY
+        # ----------------------------------------------------
+
+        per_key_frame = ttk.LabelFrame(
+            self.root,
+            text="Per-Key RGB"
+        )
+        per_key_frame.pack(
+            fill="x",
             padx=30,
-            pady=15
+            pady=10
         )
-
 
         ttk.Label(
-            self.root,
-            text="PER-KEY RGB",
-            font=("Segoe UI", 12, "bold")
-        ).pack()
+            per_key_frame,
+            text=(
+                "Индекс — протокольный индекс LED от 0 до 127.\n"
+                "Без дополнительных смещений."
+            )
+        ).pack(pady=(8, 5))
 
-
-        ttk.Label(
-            self.root,
-            text="Протокол AA 24 • 128 LED entries"
-        ).pack(
-            pady=3
-        )
-
-
-        perkey = ttk.Frame(
-            self.root
-        )
-
-        perkey.pack(
-            pady=8
-        )
-
+        index_frame = ttk.Frame(per_key_frame)
+        index_frame.pack(pady=5)
 
         ttk.Label(
-            perkey,
-            text="Индекс LED:"
-        ).grid(
-            row=0,
-            column=0,
-            padx=5
-        )
-
-
-        self.key_var = tk.IntVar(
-            value=0
-        )
-
-
-        self.key_spin = tk.Spinbox(
-            perkey,
-            from_=0,
-            to=127,
-            width=8,
-            textvariable=self.key_var,
-            command=self.update_selected_key
-        )
-
-        self.key_spin.grid(
-            row=0,
-            column=1,
-            padx=5
-        )
-
-
-        ttk.Button(
-            perkey,
-            text="Выбрать цвет",
-            command=self.choose_key_color
-        ).grid(
-            row=0,
-            column=2,
-            padx=5
-        )
-
-
-        ttk.Button(
-            perkey,
-            text="Выключить клавишу",
-            command=self.clear_selected_key
-        ).grid(
-            row=0,
-            column=3,
-            padx=5
-        )
-
-
-        ttk.Button(
-            perkey,
-            text="🧪 Отправить Per-Key",
-            command=self.send_per_key
-        ).grid(
-            row=0,
-            column=4,
-            padx=5
-        )
-
-
-        # =================================================
-        # PRESETS
-        # =================================================
-
-        presets = ttk.Frame(
-            self.root
-        )
-
-        presets.pack(
-            pady=5
-        )
-
-
-        ttk.Button(
-            presets,
-            text="A = красный",
-            command=lambda:
-                self.set_key_preset(
-                    0x31,
-                    255,
-                    0,
-                    0
-                )
+            index_frame,
+            text="Индекс:"
         ).pack(
             side="left",
-            padx=5
+            padx=(0, 5)
         )
 
-
-        ttk.Button(
-            presets,
-            text="A = синий",
-            command=lambda:
-                self.set_key_preset(
-                    0x31,
-                    0,
-                    0,
-                    255
-                )
-        ).pack(
-            side="left",
-            padx=5
+        self.index_var = tk.StringVar(
+            value="49"
         )
 
-
-        ttk.Button(
-            presets,
-            text="Все выключить",
-            command=self.clear_all_keys
-        ).pack(
-            side="left",
-            padx=5
-        )
-
-
-        # =================================================
-        # DELAY
-        # =================================================
-
-        delay_frame = ttk.Frame(
-            self.root
-        )
-
-        delay_frame.pack(
-            pady=5
-        )
-
-
-        ttk.Label(
-            delay_frame,
-            text="Задержка между OUT:"
-        ).pack(
-            side="left",
-            padx=5
-        )
-
-
-        self.delay_var = tk.StringVar(
-            value="20"
-        )
-
-
-        ttk.Entry(
-            delay_frame,
-            textvariable=self.delay_var,
+        self.index_entry = ttk.Entry(
+            index_frame,
+            textvariable=self.index_var,
             width=8
+        )
+        self.index_entry.pack(
+            side="left"
+        )
+
+        ttk.Label(
+            index_frame,
+            text="  (A в твоём официальном захвате = 49)"
         ).pack(
             side="left"
         )
 
+        self.key_color_label = tk.StringVar(
+            value="#FF0000"
+        )
+
+        ttk.Button(
+            per_key_frame,
+            text="🎨 Выбрать цвет клавиши",
+            command=self.choose_key_color
+        ).pack(pady=5)
 
         ttk.Label(
-            delay_frame,
-            text="мс"
-        ).pack(
-            side="left",
+            per_key_frame,
+            textvariable=self.key_color_label
+        ).pack()
+
+        buttons = ttk.Frame(per_key_frame)
+        buttons.pack(pady=8)
+
+        ttk.Button(
+            buttons,
+            text="Отправить Per-Key",
+            command=self.send_per_key
+        ).grid(
+            row=0,
+            column=0,
             padx=5
         )
 
+        ttk.Button(
+            buttons,
+            text="Выключить эту клавишу",
+            command=self.disable_key
+        ).grid(
+            row=0,
+            column=1,
+            padx=5
+        )
 
-        # =================================================
+        ttk.Button(
+            buttons,
+            text="Выключить все клавиши",
+            command=self.disable_all_keys
+        ).grid(
+            row=0,
+            column=2,
+            padx=5
+        )
+
+        ttk.Button(
+            per_key_frame,
+            text="🌈 Цикл только выбранной клавиши",
+            command=self.toggle_per_key_cycle
+        ).pack(pady=(0, 8))
+
+        # ----------------------------------------------------
         # LOG
-        # =================================================
+        # ----------------------------------------------------
+
+        ttk.Label(
+            self.root,
+            text="Лог"
+        ).pack()
 
         self.log_box = tk.Text(
             self.root,
-            height=18,
+            height=13,
             state="disabled"
         )
-
 
         self.log_box.pack(
             fill="both",
             expand=True,
             padx=30,
-            pady=(10, 20)
+            pady=(5, 20)
         )
 
-
-    # =====================================================
-    # LOG
-    # =====================================================
+    # ========================================================
+    # LOGGING
+    # ========================================================
 
     def log(self, text):
 
-        def write_log():
+        self.log_box.config(
+            state="normal"
+        )
 
-            self.log_box.config(
-                state="normal"
-            )
+        self.log_box.insert(
+            "end",
+            text + "\n"
+        )
 
-            self.log_box.insert(
-                "end",
-                text + "\n"
-            )
+        self.log_box.see("end")
 
-            self.log_box.see(
-                "end"
-            )
+        self.log_box.config(
+            state="disabled"
+        )
 
-            self.log_box.config(
-                state="disabled"
-            )
-
-
-        try:
-
-            self.root.after(
-                0,
-                write_log
-            )
-
-        except Exception:
-            pass
-
-
-    # =====================================================
+    # ========================================================
     # DEVICE
-    # =====================================================
+    # ========================================================
 
     def find_device(self):
 
@@ -506,25 +323,16 @@ class Type84RGB:
             PID
         )
 
-
         for d in devices:
 
             if (
-                d.get("interface_number")
-                == INTERFACE
-                and
-                d.get("usage_page")
-                == USAGE_PAGE
-                and
-                d.get("usage")
-                == USAGE
+                d.get("interface_number") == INTERFACE
+                and d.get("usage_page") == USAGE_PAGE
+                and d.get("usage") == USAGE
             ):
-
                 return d
 
-
         return None
-
 
     def scan(self):
 
@@ -532,9 +340,7 @@ class Type84RGB:
             "Поиск Type 84..."
         )
 
-
         info = self.find_device()
-
 
         if not info:
 
@@ -548,30 +354,21 @@ class Type84RGB:
 
             return
 
-
         self.device_info = info
-
 
         self.status.set(
             "✅ Type 84 найдена"
         )
 
-
         self.log("")
-        self.log(
-            "=== DEVICE ==="
-        )
-
+        self.log("=== DEVICE ===")
 
         self.log(
             "Product: "
             + str(
-                info.get(
-                    "product_string"
-                )
+                info.get("product_string")
             )
         )
-
 
         self.log(
             "VID: 0x0C45"
@@ -596,21 +393,15 @@ class Type84RGB:
         self.log(
             "Path: "
             + str(
-                info.get(
-                    "path"
-                )
+                info.get("path")
             )
         )
-
 
     def connect(self):
 
         if not self.device_info:
 
-            self.device_info = (
-                self.find_device()
-            )
-
+            self.device_info = self.find_device()
 
         if not self.device_info:
 
@@ -621,77 +412,73 @@ class Type84RGB:
 
             return
 
-
         try:
 
             if self.device:
 
                 self.device.close()
 
-
             self.device = hid.device()
-
 
             self.device.open_path(
                 self.device_info["path"]
             )
 
-
             self.status.set(
                 "🟢 MI_02 подключён"
             )
-
 
             self.log("")
             self.log(
                 "=== CONNECTED ==="
             )
 
+            try:
 
-            self.log(
-                "Manufacturer: "
-                + str(
-                    self.device
-                    .get_manufacturer_string()
+                self.log(
+                    "Manufacturer: "
+                    + str(
+                        self.device.get_manufacturer_string()
+                    )
                 )
-            )
 
+            except Exception:
+                pass
 
-            self.log(
-                "Product: "
-                + str(
-                    self.device
-                    .get_product_string()
+            try:
+
+                self.log(
+                    "Product: "
+                    + str(
+                        self.device.get_product_string()
+                    )
                 )
-            )
 
+            except Exception:
+                pass
 
             self.log(
-                "RGB-команды доступны."
+                "HID RGB готов."
             )
-
 
         except Exception as e:
 
             self.device = None
 
-
             self.status.set(
                 "❌ Ошибка подключения"
             )
-
 
             self.log(
                 "Ошибка: "
                 + repr(e)
             )
 
+    # ========================================================
+    # LOW LEVEL HID
+    # ========================================================
 
-    # =====================================================
-    # HID SEND
-    # =====================================================
-
-    def send(self, packet):
+    def send(self, packet, delay_after=True):
 
         if not self.device:
 
@@ -702,18 +489,20 @@ class Type84RGB:
 
             return False
 
-
         if len(packet) != REPORT_SIZE:
 
             raise ValueError(
-                "HID report должен быть 64 байта"
+                "HID report должен быть ровно 64 байта"
             )
 
+        # hidapi:
+        # первый 0 = HID Report ID,
+        # дальше идут наши 64 байта протокола.
+        data = [0] + packet
 
         result = self.device.write(
-            [0] + packet
+            data
         )
-
 
         self.log(
             "TX: "
@@ -723,608 +512,90 @@ class Type84RGB:
             )
         )
 
-
         self.log(
             "write() = "
             + str(result)
         )
 
+        if delay_after:
+
+            time.sleep(
+                PACKET_DELAY
+            )
 
         return result >= 0
 
+    # ========================================================
+    # EXACT TYPE 84 MODE PACKET
+    # ========================================================
 
-    # =====================================================
-    # STATIC MODE
-    # =====================================================
-
-    def make_static(self, r, g, b):
+    def make_mode_packet(self, mode, r, g, b):
 
         packet = [0] * 64
 
+        # Точный формат из твоего Wireshark:
+        #
+        # AA 23 10 00 00 00 01 00
+        # 01/80
+        # RR GG BB FF
+        # 00 00 00 00
+        # 05
+        #
+        # ВАЖНО:
+        # здесь НЕ:
+        # AA 23 10 00 00 01 ...
+        #
+        # а именно:
+        # AA 23 10 00 00 00 01 ...
 
         packet[0] = 0xAA
         packet[1] = 0x23
         packet[2] = 0x10
+
         packet[3] = 0x00
         packet[4] = 0x00
-        packet[5] = 0x01
-        packet[6] = 0x00
-        packet[7] = 0x01
+        packet[5] = 0x00
+        packet[6] = 0x01
 
+        packet[7] = mode
 
         packet[8] = r
         packet[9] = g
         packet[10] = b
         packet[11] = 0xFF
 
-
+        # После цвета ЧЕТЫРЕ нулевых байта.
         packet[12] = 0x00
         packet[13] = 0x00
         packet[14] = 0x00
-        packet[15] = 0x05
-        packet[16] = 0x00
+        packet[15] = 0x00
+
+        # После них 05.
+        packet[16] = 0x05
+
         packet[17] = 0x00
         packet[18] = 0x00
         packet[19] = 0x00
 
+        packet[20] = 0x00
 
-        packet[20] = 0xAA
-        packet[21] = 0x55
-
+        packet[21] = 0xAA
+        packet[22] = 0x55
 
         return packet
 
-
-    def set_static(self, r, g, b):
-
-        self.background = (
-            r,
-            g,
-            b
-        )
-
-
-        try:
-
-            ok = self.send(
-                self.make_static(
-                    r,
-                    g,
-                    b
-                )
-            )
-
-
-            if ok:
-
-                self.status.set(
-                    f"🟢 RGB отправлен: "
-                    f"#{r:02X}{g:02X}{b:02X}"
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "RGB ERROR: "
-                + repr(e)
-            )
-
-
-            messagebox.showerror(
-                "RGB ошибка",
-                repr(e)
-            )
-
-
-    # =====================================================
+    # ========================================================
     # USER MODE
-    #
-    # Официальный пакет:
-    #
-    # AA 23 10 00 00 01 00 80
-    # B6 4C FD FF
-    # 00 00 00 05
-    # 00 00 00 00
-    # AA 55
-    #
-    # Главное отличие от static:
-    # packet[7] = 0x80
-    # =====================================================
+    # ========================================================
 
-    def make_user_mode(self):
+    def make_user_mode_packet(self):
 
-        packet = [0] * 64
-
-
-        packet[0] = 0xAA
-        packet[1] = 0x23
-        packet[2] = 0x10
-        packet[3] = 0x00
-        packet[4] = 0x00
-        packet[5] = 0x01
-        packet[6] = 0x00
-        packet[7] = 0x80
-
-
-        # Это значение мы видим
-        # в официальном пакете пользователя.
-        #
-        # Пока оставляем его таким,
-        # потому что это подтверждено
-        # реальным захватом Wireshark.
-
-        packet[8] = 0xB6
-        packet[9] = 0x4C
-        packet[10] = 0xFD
-        packet[11] = 0xFF
-
-
-        packet[12] = 0x00
-        packet[13] = 0x00
-        packet[14] = 0x00
-        packet[15] = 0x05
-        packet[16] = 0x00
-        packet[17] = 0x00
-        packet[18] = 0x00
-        packet[19] = 0x00
-
-
-        packet[20] = 0xAA
-        packet[21] = 0x55
-
-
-        return packet
-
+        return self.make_mode_packet(
+            0x80,
+            *self.background
+        )
 
     def set_user_mode(self):
-
-        try:
-
-            ok = self.send(
-                self.make_user_mode()
-            )
-
-
-            if ok:
-
-                self.status.set(
-                    "🎯 Пользовательский режим включён"
-                )
-
-
-                self.log(
-                    "User mode: "
-                    "AA 23 10 ... 80 ..."
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "USER MODE ERROR: "
-                + repr(e)
-            )
-
-
-            messagebox.showerror(
-                "Ошибка пользовательского режима",
-                repr(e)
-            )
-
-
-    def set_static_mode(self):
-
-        r, g, b = self.background
-
-
-        try:
-
-            ok = self.send(
-                self.make_static(
-                    r,
-                    g,
-                    b
-                )
-            )
-
-
-            if ok:
-
-                self.status.set(
-                    "💡 Статический режим включён"
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "STATIC MODE ERROR: "
-                + repr(e)
-            )
-
-
-    # =====================================================
-    # COLOR PICKER
-    # =====================================================
-
-    def choose_background(self):
-
-        color = colorchooser.askcolor(
-            title="Цвет всей клавиатуры"
-        )
-
-
-        if not color or not color[0]:
-
-            return
-
-
-        r, g, b = map(
-            int,
-            color[0]
-        )
-
-
-        self.set_static(
-            r,
-            g,
-            b
-        )
-
-
-    # =====================================================
-    # CYCLE
-    # =====================================================
-
-    def toggle_cycle(self):
-
-        if self.running:
-
-            self.running = False
-
-
-            self.status.set(
-                "⏹ Цикл остановлен"
-            )
-
-
-            return
-
-
-        self.running = True
-
-
-        self.status.set(
-            "🌈 Цикл запущен"
-        )
-
-
-        threading.Thread(
-            target=self.cycle_thread,
-            daemon=True
-        ).start()
-
-
-    def cycle_thread(self):
-
-        colors = [
-
-            (255, 0, 0),
-
-            (255, 80, 0),
-
-            (255, 255, 0),
-
-            (0, 255, 0),
-
-            (0, 255, 255),
-
-            (0, 80, 255),
-
-            (120, 0, 255),
-
-            (255, 0, 255),
-
-        ]
-
-
-        while self.running:
-
-            for r, g, b in colors:
-
-                if not self.running:
-
-                    break
-
-
-                try:
-
-                    packet = self.make_static(
-                        r,
-                        g,
-                        b
-                    )
-
-
-                    if self.device:
-
-                        self.device.write(
-                            [0] + packet
-                        )
-
-
-                    self.background = (
-                        r,
-                        g,
-                        b
-                    )
-
-
-                except Exception as e:
-
-                    self.log(
-                        "Cycle error: "
-                        + repr(e)
-                    )
-
-
-                    self.running = False
-
-                    break
-
-
-                time.sleep(
-                    1.0
-                )
-
-
-    # =====================================================
-    # PER-KEY PACKET
-    # =====================================================
-
-    def make_per_key_packet(
-        self,
-        start_index,
-        values
-    ):
-
-        packet = [0] * 64
-
-
-        packet[0] = 0xAA
-        packet[1] = 0x24
-        packet[2] = 0x38
-
-
-        # Адрес / offset блока
-        offset = start_index
-
-
-        packet[3] = (
-            offset
-            & 0xFF
-        )
-
-
-        packet[4] = (
-            (offset >> 8)
-            & 0xFF
-        )
-
-
-        # Остальная структура
-        # соответствует найденному
-        # официальному AA 24 38.
-
-        pos = 8
-
-
-        for index, value in values:
-
-            if pos + 3 > 63:
-
-                break
-
-
-            packet[pos] = (
-                index
-                & 0xFF
-            )
-
-            packet[pos + 1] = value[0]
-            packet[pos + 2] = value[1]
-
-
-            pos += 4
-
-
-        return packet
-
-
-    # =====================================================
-    # BUILD OFFICIAL PER-KEY
-    # =====================================================
-
-    def build_per_key_packets(self):
-
-        packets = []
-
-
-        # -------------------------------------------------
-        # Первые 126 LED
-        # -------------------------------------------------
-
-        entries = []
-
-
-        for index in range(126):
-
-            color = self.key_colors[index]
-
-
-            if color == (0, 0, 0):
-
-                # Выключенная клавиша:
-                # индекс + 000000
-                entries.append(
-                    (
-                        index,
-                        (0, 0, 0)
-                    )
-                )
-
-            else:
-
-                r, g, b = color
-
-
-                entries.append(
-                    (
-                        index,
-                        (
-                            r,
-                            g
-                        )
-                    )
-                )
-
-
-        # -------------------------------------------------
-        # Реальная структура официального
-        # протокола состоит из блоков по 14 entries.
-        #
-        # Каждый entry:
-        #
-        # INDEX + 3 bytes data
-        # -------------------------------------------------
-
-        for block_start in range(
-            0,
-            126,
-            14
-        ):
-
-            packet = [0] * 64
-
-
-            packet[0] = 0xAA
-            packet[1] = 0x24
-            packet[2] = 0x38
-
-
-            # Официальный offset:
-            #
-            # 00 00
-            # 38
-            # 70
-            # A8
-            # E0
-            # 18 01
-            # 50 01
-            # 88 01
-            # C0 01
-
-            offset = (
-                block_start * 4
-            )
-
-
-            packet[3] = (
-                offset
-                & 0xFF
-            )
-
-
-            packet[4] = (
-                (offset >> 8)
-                & 0xFF
-            )
-
-
-            packet[5] = 0x00
-            packet[6] = 0x00
-            packet[7] = 0x00
-
-
-            pos = 8
-
-
-            for i in range(14):
-
-                index = (
-                    block_start + i
-                )
-
-
-                r, g, b = (
-                    self.key_colors[index]
-                )
-
-
-                packet[pos] = index
-
-
-                # Для текущего эксперимента
-                # используем RGB как три байта.
-
-                packet[pos + 1] = r
-                packet[pos + 2] = g
-                packet[pos + 3] = b
-
-
-                pos += 4
-
-
-            packets.append(
-                packet
-            )
-
-
-        # -------------------------------------------------
-        # Последний пакет
-        # -------------------------------------------------
-
-        packet = [0] * 64
-
-
-        packet[0] = 0xAA
-        packet[1] = 0x24
-        packet[2] = 0x08
-        packet[3] = 0xF8
-        packet[4] = 0x01
-        packet[5] = 0x00
-        packet[6] = 0x01
-        packet[7] = 0x00
-
-
-        # Остаток LED 126-127
-
-        packet[8] = 126
-        packet[9] = 0
-        packet[10] = 0
-        packet[11] = 0
-
-
-        packet[12] = 127
-        packet[13] = 0
-        packet[14] = 0
-        packet[15] = 0
-
-
-        packets.append(
-            packet
-        )
-
-
-        return packets
-
-
-    # =====================================================
-    # SEND PER-KEY
-    # =====================================================
-
-    def send_per_key(self):
 
         if not self.device:
 
@@ -1335,25 +606,266 @@ class Type84RGB:
 
             return
 
+        try:
+
+            packet = self.make_user_mode_packet()
+
+            self.log(
+                "Переключение в пользовательский режим..."
+            )
+
+            self.send(
+                packet
+            )
+
+            self.status.set(
+                "👤 Пользовательский режим"
+            )
+
+        except Exception as e:
+
+            self.log(
+                "USER MODE ERROR: "
+                + repr(e)
+            )
+
+            messagebox.showerror(
+                "Ошибка",
+                repr(e)
+            )
+
+    # ========================================================
+    # STATIC WHOLE KEYBOARD
+    # ========================================================
+
+    def make_static_packet(self, r, g, b):
+
+        # mode = 0x01
+        return self.make_mode_packet(
+            0x01,
+            r,
+            g,
+            b
+        )
+
+    def set_static(self, r, g, b):
+
+        self.background = (
+            r,
+            g,
+            b
+        )
 
         try:
 
-            delay_ms = float(
-                self.delay_var.get()
+            packet = self.make_static_packet(
+                r,
+                g,
+                b
             )
 
-
-            delay = (
-                delay_ms / 1000.0
+            self.send(
+                packet
             )
 
-
-        except Exception:
-
-            delay = (
-                PER_KEY_DELAY
+            self.status.set(
+                f"🟢 Статический RGB: "
+                f"#{r:02X}{g:02X}{b:02X}"
             )
 
+        except Exception as e:
+
+            self.log(
+                "STATIC ERROR: "
+                + repr(e)
+            )
+
+            messagebox.showerror(
+                "RGB ошибка",
+                repr(e)
+            )
+
+    # ========================================================
+    # COLOR PICKER
+    # ========================================================
+
+    def choose_background(self):
+
+        color = colorchooser.askcolor(
+            title="Цвет всей клавиатуры"
+        )
+
+        if not color or not color[0]:
+
+            return
+
+        r, g, b = map(
+            int,
+            color[0]
+        )
+
+        self.set_static(
+            r,
+            g,
+            b
+        )
+
+    def choose_key_color(self):
+
+        color = colorchooser.askcolor(
+            title="Цвет клавиши"
+        )
+
+        if not color or not color[0]:
+
+            return
+
+        r, g, b = map(
+            int,
+            color[0]
+        )
+
+        self.selected_key_color = (
+            r,
+            g,
+            b
+        )
+
+        self.key_color_label.set(
+            f"#{r:02X}{g:02X}{b:02X}"
+        )
+
+    # ========================================================
+    # PER-KEY PROTOCOL
+    # ========================================================
+
+    def build_per_key_packets(self):
+
+        """
+        Формирует ТОЧНО 10 HID-пакетов.
+
+        Пакет 1:
+            AA 24 38 00 00 00 00 00
+            index 0..13
+
+        Пакет 2:
+            AA 24 38 38 00 00 00 0E
+            index 14..27
+
+        ...
+
+        Пакет 9:
+            index 112..125
+
+        Пакет 10:
+            index 126..127
+
+        Каждая клавиша:
+            INDEX R G B
+
+        Например A из твоего официального захвата:
+
+            31 FF 00 00
+
+        то есть protocol index 49 = красный.
+        """
+
+        packets = []
+
+        for start_index in range(
+            0,
+            128,
+            14
+        ):
+
+            packet = [0] * 64
+
+            # ------------------------------------------------
+            # HEADER
+            # ------------------------------------------------
+
+            packet[0] = 0xAA
+            packet[1] = 0x24
+            packet[2] = 0x38
+
+            # Смещение в байтах:
+            #
+            # 14 LED * 4 bytes = 0x38
+            #
+            byte_offset = start_index * 4
+
+            packet[3] = byte_offset & 0xFF
+            packet[4] = (
+                byte_offset >> 8
+            ) & 0xFF
+            packet[5] = (
+                byte_offset >> 16
+            ) & 0xFF
+            packet[6] = (
+                byte_offset >> 24
+            ) & 0xFF
+
+            packet[7] = start_index
+
+            # ------------------------------------------------
+            # LED ENTRIES
+            # ------------------------------------------------
+
+            packet_pos = 8
+
+            end_index = min(
+                start_index + 14,
+                128
+            )
+
+            for index in range(
+                start_index,
+                end_index
+            ):
+
+                color = self.key_colors[index]
+
+                if color is None:
+
+                    r = 0
+                    g = 0
+                    b = 0
+
+                else:
+
+                    r, g, b = color
+
+                # EXACT:
+                #
+                # [index][R][G][B]
+                #
+                packet[packet_pos] = index
+                packet[packet_pos + 1] = r
+                packet[packet_pos + 2] = g
+                packet[packet_pos + 3] = b
+
+                packet_pos += 4
+
+            packets.append(
+                packet
+            )
+
+        return packets
+
+    # ========================================================
+    # SEND COMPLETE PER-KEY STATE
+    # ========================================================
+
+    def send_complete_per_key(self):
+
+        if not self.device:
+
+            messagebox.showwarning(
+                "Нет подключения",
+                "Сначала подключи MI_02."
+            )
+
+            return False
 
         try:
 
@@ -1361,45 +873,29 @@ class Type84RGB:
                 self.build_per_key_packets()
             )
 
-
             self.log(
-                ""
+                "Отправка полного Per-Key состояния..."
             )
-
-            self.log(
-                "=== PER-KEY SEND ==="
-            )
-
 
             for number, packet in enumerate(
                 packets,
                 start=1
             ):
 
-                self.device.write(
-                    [0] + packet
-                )
-
-
                 self.log(
-                    f"Per-Key OUT "
-                    f"{number}/{len(packets)}: "
-                    + " ".join(
-                        f"{x:02X}"
-                        for x in packet
-                    )
+                    f"Per-Key packet "
+                    f"{number}/10"
                 )
 
-
-                time.sleep(
-                    delay
+                self.send(
+                    packet
                 )
 
-
-            self.status.set(
-                "🟢 Per-Key отправлен"
+            self.log(
+                "Per-Key: все 10 пакетов отправлены."
             )
 
+            return True
 
         except Exception as e:
 
@@ -1408,191 +904,269 @@ class Type84RGB:
                 + repr(e)
             )
 
+            return False
 
-            messagebox.showerror(
-                "Per-Key ошибка",
-                repr(e)
-            )
+    # ========================================================
+    # READ INDEX
+    # ========================================================
 
-
-    # =====================================================
-    # KEY SELECTION
-    # =====================================================
-
-    def update_selected_key(self):
+    def get_index(self):
 
         try:
 
-            value = int(
-                self.key_var.get()
+            index = int(
+                self.index_var.get()
             )
 
+        except ValueError:
 
-            if 0 <= value < PER_KEY_COUNT:
-
-                self.selected_key = value
-
-
-                self.log(
-                    f"Выбран LED index: "
-                    f"{value}"
-                )
-
-
-        except Exception:
-
-            pass
-
-
-    # =====================================================
-    # KEY COLOR
-    # =====================================================
-
-    def choose_key_color(self):
-
-        color = colorchooser.askcolor(
-            title=(
-                f"Цвет LED {self.selected_key}"
+            messagebox.showerror(
+                "Ошибка индекса",
+                "Индекс должен быть целым числом от 0 до 127."
             )
-        )
 
+            return None
 
-        if not color or not color[0]:
+        if not 0 <= index <= 127:
+
+            messagebox.showerror(
+                "Ошибка индекса",
+                "Индекс должен быть от 0 до 127."
+            )
+
+            return None
+
+        return index
+
+    # ========================================================
+    # SEND ONE KEY
+    # ========================================================
+
+    def send_per_key(self):
+
+        index = self.get_index()
+
+        if index is None:
 
             return
 
+        if not self.device:
 
-        r, g, b = map(
-            int,
-            color[0]
-        )
-
-
-        self.selected_color = (
-            r,
-            g,
-            b
-        )
-
-
-        self.key_colors[
-            self.selected_key
-        ] = (
-            r,
-            g,
-            b
-        )
-
-
-        self.log(
-            f"LED {self.selected_key}: "
-            f"#{r:02X}{g:02X}{b:02X}"
-        )
-
-
-    # =====================================================
-    # CLEAR ONE KEY
-    # =====================================================
-
-    def clear_selected_key(self):
-
-        self.key_colors[
-            self.selected_key
-        ] = (
-            0,
-            0,
-            0
-        )
-
-
-        self.log(
-            f"LED {self.selected_key} выключен"
-        )
-
-
-    # =====================================================
-    # CLEAR ALL
-    # =====================================================
-
-    def clear_all_keys(self):
-
-        for i in range(
-            PER_KEY_COUNT
-        ):
-
-            self.key_colors[i] = (
-                0,
-                0,
-                0
+            messagebox.showwarning(
+                "Нет подключения",
+                "Сначала подключи MI_02."
             )
 
+            return
 
-        self.log(
-            "Все LED выключены в памяти."
+        # Если цвет ещё не выбран,
+        # используем красный.
+        color = getattr(
+            self,
+            "selected_key_color",
+            (255, 0, 0)
         )
 
+        self.key_colors[index] = color
 
+        self.log("")
         self.log(
-            "Для отправки нажми "
-            "«Отправить Per-Key»."
+            f"Per-Key index {index}: "
+            f"RGB {color}"
         )
 
+        # ВАЖНО:
+        # сначала гарантированно включаем
+        # пользовательский режим.
+        self.set_user_mode()
 
-    # =====================================================
-    # PRESET
-    # =====================================================
+        # Затем отправляем все 10 пакетов
+        # состояния клавиш.
+        ok = self.send_complete_per_key()
 
-    def set_key_preset(
+        if ok:
+
+            self.status.set(
+                f"👤 Per-Key index {index} изменён"
+            )
+
+    # ========================================================
+    # DISABLE ONE KEY
+    # ========================================================
+
+    def disable_key(self):
+
+        index = self.get_index()
+
+        if index is None:
+
+            return
+
+        self.key_colors[index] = None
+
+        self.log(
+            f"Per-Key index {index}: OFF"
+        )
+
+        self.set_user_mode()
+
+        self.send_complete_per_key()
+
+        self.status.set(
+            f"⬛ Index {index} выключен"
+        )
+
+    # ========================================================
+    # DISABLE ALL
+    # ========================================================
+
+    def disable_all_keys(self):
+
+        for i in range(128):
+
+            self.key_colors[i] = None
+
+        self.log(
+            "Все 128 Per-Key LED установлены в OFF."
+        )
+
+        self.set_user_mode()
+
+        self.send_complete_per_key()
+
+        self.status.set(
+            "⬛ Все Per-Key клавиши выключены"
+        )
+
+    # ========================================================
+    # PER-KEY CYCLE
+    # ========================================================
+
+    def toggle_per_key_cycle(self):
+
+        index = self.get_index()
+
+        if index is None:
+
+            return
+
+        if self.per_key_cycle_running:
+
+            self.per_key_cycle_running = False
+
+            self.status.set(
+                "⏹ Per-Key цикл остановлен"
+            )
+
+            return
+
+        if not self.device:
+
+            messagebox.showwarning(
+                "Нет подключения",
+                "Сначала подключи MI_02."
+            )
+
+            return
+
+        self.per_key_cycle_running = True
+
+        self.status.set(
+            f"🌈 Цикл index {index}"
+        )
+
+        threading.Thread(
+            target=self.per_key_cycle_thread,
+            args=(index,),
+            daemon=True
+        ).start()
+
+    def per_key_cycle_thread(
         self,
-        index,
-        r,
-        g,
-        b
+        index
     ):
 
-        if not (
-            0 <= index < PER_KEY_COUNT
-        ):
+        colors = [
+            (255, 0, 0),
+            (255, 80, 0),
+            (255, 255, 0),
+            (0, 255, 0),
+            (0, 255, 255),
+            (0, 80, 255),
+            (120, 0, 255),
+            (255, 0, 255),
+        ]
+
+        # Один раз переключаемся
+        # в пользовательский режим.
+        try:
+
+            self.set_user_mode()
+
+        except Exception as e:
+
+            self.log(
+                "Cycle mode error: "
+                + repr(e)
+            )
+
+            self.per_key_cycle_running = False
 
             return
 
+        while self.per_key_cycle_running:
 
-        self.key_colors[index] = (
-            r,
-            g,
-            b
-        )
+            for r, g, b in colors:
 
+                if not self.per_key_cycle_running:
 
-        self.selected_key = index
+                    break
 
+                try:
 
-        self.key_var.set(
-            index
-        )
+                    # Меняем ТОЛЬКО выбранный
+                    # протокольный индекс.
+                    self.key_colors[index] = (
+                        r,
+                        g,
+                        b
+                    )
 
+                    self.log(
+                        f"Cycle index {index}: "
+                        f"#{r:02X}{g:02X}{b:02X}"
+                    )
 
-        self.selected_color = (
-            r,
-            g,
-            b
-        )
+                    # Полный Per-Key blob.
+                    #
+                    # Все остальные индексы остаются
+                    # в self.key_colors без изменений.
+                    self.send_complete_per_key()
 
+                except Exception as e:
 
-        self.log(
-            f"LED {index} установлен: "
-            f"#{r:02X}{g:02X}{b:02X}"
-        )
+                    self.log(
+                        "Per-Key cycle error: "
+                        + repr(e)
+                    )
 
+                    self.per_key_cycle_running = False
 
-    # =====================================================
+                    break
+
+                # Пауза между цветами.
+                time.sleep(
+                    0.5
+                )
+
+    # ========================================================
     # CLOSE
-    # =====================================================
+    # ========================================================
 
     def close(self):
 
         self.running = False
-
+        self.per_key_cycle_running = False
 
         try:
 
@@ -1601,32 +1175,27 @@ class Type84RGB:
                 self.device.close()
 
         except Exception:
-
             pass
-
 
         self.root.destroy()
 
 
-# =========================================================
+# ============================================================
 # MAIN
-# =========================================================
+# ============================================================
 
 def main():
 
     root = tk.Tk()
 
-
     app = Type84RGB(
         root
     )
-
 
     root.protocol(
         "WM_DELETE_WINDOW",
         app.close
     )
-
 
     root.mainloop()
 
