@@ -53,7 +53,7 @@ KEY_LAYOUT = [
         ("E", 35, 3, 1, 1), ("R", 36, 4, 1, 1), ("T", 37, 5, 1, 1),
         ("Y", 38, 6, 1, 1), ("U", 39, 7, 1, 1), ("I", 40, 8, 1, 1),
         ("O", 41, 9, 1, 1), ("P", 42, 10, 1, 1), ("[", 43, 11, 1, 1),
-        ("]", 44, 12, 1, 1), ("Enter", 76, 13, 1, 2),
+        ("]", 44, 12, 1, 1), ("\\", 60, 13, 1, 1),
         ("Delete", 106, 16, 1, 1), ("PgDn", 108, 17, 1, 1),
     ],
     [
@@ -61,23 +61,23 @@ KEY_LAYOUT = [
         ("D", 51, 3, 1, 1), ("F", 52, 4, 1, 1), ("G", 53, 5, 1, 1),
         ("H", 54, 6, 1, 1), ("J", 55, 7, 1, 1), ("K", 56, 8, 1, 1),
         ("L", 57, 9, 1, 1), (";", 58, 10, 1, 1), ("'", 59, 11, 1, 1),
-        ("\\", 60, 12, 1, 1),
+        ("Enter", 76, 12, 2, 1),
     ],
     [
         ("LShift", 64, 0, 2, 1), ("Z", 65, 2, 1, 1), ("X", 66, 3, 1, 1),
         ("C", 67, 4, 1, 1), ("V", 68, 5, 1, 1), ("B", 69, 6, 1, 1),
         ("N", 70, 7, 1, 1), ("M", 71, 8, 1, 1), (",", 72, 9, 1, 1),
         (".", 73, 10, 1, 1), ("/", 74, 11, 1, 1), ("RShift", 75, 12, 2, 1),
+        ("Up", 90, 16, 1, 1),
     ],
     [
         ("LCtrl", 80, 0, 1, 1), ("Win", 81, 1, 1, 1), ("LAlt", 82, 2, 1, 1),
         ("Space", 83, 3, 6, 1), ("RAlt", 84, 9, 1, 1), ("Fn", 85, 10, 1, 1),
-        ("RCtrl", 87, 11, 1, 1), ("Left", 88, 15, 1, 1), ("Down", 89, 16, 1, 1), ("Right", 91, 17, 1, 1),
-    ],
-    [
-        ("Up", 90, 16, 1, 1),
+        ("RCtrl", 87, 11, 1, 1), ("Left", 88, 15, 1, 1), ("Down", 89, 16, 1, 1),
+        ("Right", 91, 17, 1, 1),
     ],
 ]
+
 
 
 LIGHT_BG = "#E7E4E8"
@@ -109,6 +109,7 @@ class Type84RGB:
         self.device_info = None
         self.background = (255, 0, 0)
         self.key_color = (255, 0, 0)
+        self.brightness_level = 255
         self.per_key_colors = [(0, 0, 0) for _ in range(LED_COUNT)]
         self.selected_key_name = None
         self.selected_key_index = None
@@ -153,9 +154,25 @@ class Type84RGB:
         tk.Label(self.root, text="ВСЯ КЛАВИАТУРА", font=("Segoe UI", 12, "bold")).pack()
         whole = tk.Frame(self.root)
         whole.pack(pady=5)
-        self.make_ui_button(whole, "🎨 Выбрать цвет всей клавиатуры", self.choose_background).pack(side="left", padx=4)
-        self.make_ui_button(whole, "👤 Пользовательский режим", self.set_custom_mode).pack(side="left", padx=4)
-        self.make_ui_button(whole, "🌈 Цикл всей клавиатуры", self.toggle_cycle).pack(side="left", padx=4)
+
+        self.make_ui_button(
+            whole, "🎨 Выбрать цвет всей клавиатуры", self.choose_background
+        ).pack(side="left", padx=4)
+
+        self.make_ui_button(
+            whole, "👤 Пользовательский режим", self.set_custom_mode
+        ).pack(side="left", padx=4)
+
+        tk.Label(whole, text="Яркость:").pack(side="left", padx=(18, 4))
+        self.brightness_var = tk.StringVar(value="255")
+        self.brightness_entry = tk.Entry(
+            whole, textvariable=self.brightness_var, width=8, justify="center"
+        )
+        self.brightness_entry.pack(side="left", padx=2)
+
+        self.make_ui_button(
+            whole, "Применить", self.apply_brightness
+        ).pack(side="left", padx=4)
 
         self.add_separator()
 
@@ -171,14 +188,32 @@ class Type84RGB:
 
         self.add_separator()
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="x", padx=20, pady=(0, 7))
-        self.per_key_tab = tk.Frame(self.notebook)
-        self.cycle_tab = tk.Frame(self.notebook)
-        self.notebook.add(self.per_key_tab, text="Клавиша")
-        self.notebook.add(self.cycle_tab, text="Переливающиеся клавиши")
+        self.user_mode_frame = tk.Frame(self.root, bd=1, relief="groove")
+        self.user_mode_frame.pack(fill="x", padx=20, pady=(4, 8))
+
+        tk.Label(
+            self.user_mode_frame,
+            text="ПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ",
+            font=("Segoe UI", 12, "bold")
+        ).pack(pady=(8, 2))
+
+        self.per_key_tab = tk.Frame(self.user_mode_frame)
+        self.per_key_tab.pack(fill="x", padx=8, pady=(0, 5))
 
         self.build_per_key_tab()
+
+        self.cycle_sub_frame = tk.Frame(self.user_mode_frame, bd=1, relief="groove")
+        self.cycle_sub_frame.pack(fill="x", padx=8, pady=(4, 8))
+
+        tk.Label(
+            self.cycle_sub_frame,
+            text="ПЕРЕЛИВАЮЩИЕСЯ КЛАВИШИ",
+            font=("Segoe UI", 11, "bold")
+        ).pack(pady=(7, 2))
+
+        self.cycle_tab = tk.Frame(self.cycle_sub_frame)
+        self.cycle_tab.pack(fill="x", padx=5, pady=3)
+
         self.build_cycle_tab()
 
         self.log_box = tk.Text(self.root, height=7, state="disabled", wrap="none")
@@ -194,17 +229,16 @@ class Type84RGB:
         controls = tk.Frame(self.per_key_tab)
         controls.pack(pady=6)
         self.make_ui_button(controls, "🎨 Выбрать цвет", self.choose_key_color).grid(row=0, column=0, padx=4)
-        self.make_ui_button(controls, "🟢 Отправить цвет", self.send_selected_key).grid(row=0, column=1, padx=4)
-        self.make_ui_button(controls, "⬛ Выключить", self.disable_selected_key).grid(row=0, column=2, padx=4)
-        self.make_ui_button(controls, "⬛ Выключить все", self.disable_all_keys).grid(row=0, column=3, padx=4)
+        self.make_ui_button(controls, "⬛ Выключить", self.disable_selected_key).grid(row=0, column=1, padx=4)
+        self.make_ui_button(controls, "⬛ Выключить все", self.disable_all_keys).grid(row=0, column=2, padx=4)
 
     def build_cycle_tab(self):
         top = tk.Frame(self.cycle_tab)
         top.pack(fill="x", padx=10, pady=6)
-        tk.Label(top, text="Добавляй отдельные клавиши и для каждой выбирай от 2 до 5 цветов.").pack(side="left")
+        tk.Label(top, text="Для каждой клавиши: 2–5 цветов, свой интервал и отдельный ▶/■. Можно добавлять сколько угодно клавиш.").pack(side="left")
         self.make_ui_button(top, "+ Добавить клавишу", self.add_cycle_row).pack(side="right")
 
-        self.cycle_canvas = tk.Canvas(self.cycle_tab, height=150, highlightthickness=0)
+        self.cycle_canvas = tk.Canvas(self.cycle_tab, height=220, highlightthickness=0)
         self.cycle_scroll = ttk.Scrollbar(self.cycle_tab, orient="vertical", command=self.cycle_canvas.yview)
         self.cycle_inner = tk.Frame(self.cycle_canvas)
         self.cycle_inner.bind("<Configure>", lambda e: self.cycle_canvas.configure(scrollregion=self.cycle_canvas.bbox("all")))
@@ -347,6 +381,34 @@ class Type84RGB:
             self.status.set("❌ Ошибка подключения")
             self.log("Ошибка: " + repr(e))
 
+    # ---------------- Brightness ----------------
+    def apply_brightness(self):
+        raw = self.brightness_var.get().strip()
+        try:
+            level = int(raw)
+        except ValueError:
+            messagebox.showwarning("Яркость", "Введи целое число.")
+            return
+
+        # UI does not impose a limit. HID RGB channels themselves are 0..255,
+        # so the effective multiplier is safely bounded when creating packets.
+        self.brightness_level = level
+        if self.custom_mode_active:
+            ok = self.send_per_key_state()
+        else:
+            ok = self.send(self.make_static(*self.background), log=True)
+
+        if ok:
+            self.status.set(f"💡 Яркость применена: {level}")
+
+    def scale_rgb(self, color):
+        # Treat 255 as full brightness. Values outside the RGB range are
+        # accepted in the UI and simply produce the nearest representable
+        # output level.
+        level = max(0, min(255, self.brightness_level))
+        factor = level / 255.0
+        return tuple(max(0, min(255, round(c * factor))) for c in color)
+
     # ---------------- HID protocol ----------------
     def send(self, packet, log=True):
         if not self.device:
@@ -363,6 +425,7 @@ class Type84RGB:
 
     def make_static(self, r, g, b, custom=False):
         # Verified layout: AA 23 10 00 00 00 01 00 [01/80] R G B FF 00 00 00 00 05 ... AA 55
+        r, g, b = self.scale_rgb((r, g, b))
         packet = [0] * 64
         packet[0:8] = [0xAA, 0x23, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00]
         packet[8] = 0x80 if custom else 0x01
@@ -404,15 +467,15 @@ class Type84RGB:
             packet[0:8] = [0xAA, 0x24, 0x38, offset & 0xFF, (offset >> 8) & 0xFF, 0x00, 0x00, 0x00]
             pos = 8
             for i, color in enumerate(chunk, start=start):
-                r, g, b = clamp_color(color)
+                r, g, b = self.scale_rgb(clamp_color(color))
                 packet[pos:pos + 4] = [i & 0xFF, r, g, b]
                 pos += 4
             packets.append(packet)
         final = [0] * 64
         final[0:8] = [0xAA, 0x24, 0x08, 0xF8, 0x01, 0x00, 0x01, 0x00]
         # The last report carries LED 126 and 127, exactly like the captured report.
-        final[8:12] = [126, *clamp_color(colors[126])]
-        final[12:16] = [127, *clamp_color(colors[127])]
+        final[8:12] = [126, *self.scale_rgb(clamp_color(colors[126]))]
+        final[12:16] = [127, *self.scale_rgb(clamp_color(colors[127]))]
         packets.append(final)
         return packets
 
@@ -448,31 +511,6 @@ class Type84RGB:
     def disable_all_keys(self):
         self.per_key_colors = [(0, 0, 0) for _ in range(LED_COUNT)]
         self.send_per_key_state()
-
-    # ---------------- Whole keyboard cycle ----------------
-    def toggle_cycle(self):
-        if self.running:
-            self.running = False
-            self.status.set("⏹ Цикл остановлен")
-            return
-        self.running = True
-        self.status.set("🌈 Цикл запущен")
-        threading.Thread(target=self.cycle_thread, daemon=True).start()
-
-    def cycle_thread(self):
-        colors = [(255, 0, 0), (255, 80, 0), (255, 255, 0), (0, 255, 0),
-                  (0, 255, 255), (0, 80, 255), (120, 0, 255), (255, 0, 255)]
-        while self.running:
-            for color in colors:
-                if not self.running:
-                    break
-                try:
-                    self.send(self.make_static(*color), log=False)
-                except Exception as e:
-                    self.log("Cycle error: " + repr(e))
-                    self.running = False
-                    break
-                time.sleep(1.0)
 
     # ---------------- Per-key cycles ----------------
     def start_cycle_for_config(self, key_name, colors, interval):
@@ -541,6 +579,8 @@ class Type84RGB:
             elif cls == "Label":
                 widget.configure(bg=bg, fg=fg)
             elif cls == "Text":
+                widget.configure(bg=button, fg=fg, insertbackground=fg)
+            elif cls == "Entry":
                 widget.configure(bg=button, fg=fg, insertbackground=fg)
             elif cls == "Button":
                 if widget is not self.theme_button and widget in self.keyboard_buttons.values():
