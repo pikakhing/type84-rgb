@@ -164,11 +164,13 @@ class Type84RGB:
         ).pack(side="left", padx=4)
 
         tk.Label(whole, text="Яркость:").pack(side="left", padx=(18, 4))
-        self.brightness_var = tk.StringVar(value="255")
-        self.brightness_entry = tk.Entry(
-            whole, textvariable=self.brightness_var, width=8, justify="center"
+        self.brightness_var = tk.IntVar(value=255)
+        self.brightness_scale = tk.Scale(
+            whole, from_=0, to=255, orient="horizontal",
+            variable=self.brightness_var, length=220, showvalue=True,
+            resolution=1, highlightthickness=0
         )
-        self.brightness_entry.pack(side="left", padx=2)
+        self.brightness_scale.pack(side="left", padx=2)
 
         self.make_ui_button(
             whole, "Применить", self.apply_brightness
@@ -228,67 +230,100 @@ class Type84RGB:
     def build_per_key_tab(self):
         controls = tk.Frame(self.per_key_tab)
         controls.pack(pady=6)
-        self.make_ui_button(controls, "🎨 Выбрать цвет", self.choose_key_color).grid(row=0, column=0, padx=4)
-        self.make_ui_button(controls, "⬛ Выключить", self.disable_selected_key).grid(row=0, column=1, padx=4)
-        self.make_ui_button(controls, "⬛ Выключить все", self.disable_all_keys).grid(row=0, column=2, padx=4)
+        self.make_ui_button(controls, "🎨 Цвет выбранной", self.choose_key_color).grid(row=0, column=0, padx=4)
+        self.make_ui_button(controls, "🌈 Цвет всех клавиш", self.choose_all_custom_color).grid(row=0, column=1, padx=4)
+        self.make_ui_button(controls, "⬛ Выключить", self.disable_selected_key).grid(row=0, column=2, padx=4)
+        self.make_ui_button(controls, "⬛ Выключить все", self.disable_all_keys).grid(row=0, column=3, padx=4)
+        tk.Label(
+            self.per_key_tab,
+            text="Для перелива: сначала нажми нужную клавишу на виртуальной клавиатуре, затем «+ Добавить клавишу»."
+        ).pack(pady=(0, 5))
 
     def build_cycle_tab(self):
         top = tk.Frame(self.cycle_tab)
         top.pack(fill="x", padx=10, pady=6)
-        tk.Label(top, text="Для каждой клавиши: 2–5 цветов, свой интервал и отдельный ▶/■. Можно добавлять сколько угодно клавиш.").pack(side="left")
+        tk.Label(
+            top,
+            text="Выбери клавишу на виртуальной клавиатуре и нажми «+ Добавить клавишу». Для каждой настройки можно выбрать 2–5 цветов и свой интервал."
+        ).pack(side="left")
         self.make_ui_button(top, "+ Добавить клавишу", self.add_cycle_row).pack(side="right")
 
         self.cycle_canvas = tk.Canvas(self.cycle_tab, height=220, highlightthickness=0)
         self.cycle_scroll = ttk.Scrollbar(self.cycle_tab, orient="vertical", command=self.cycle_canvas.yview)
         self.cycle_inner = tk.Frame(self.cycle_canvas)
-        self.cycle_inner.bind("<Configure>", lambda e: self.cycle_canvas.configure(scrollregion=self.cycle_canvas.bbox("all")))
+        self.cycle_inner.bind(
+            "<Configure>",
+            lambda e: self.cycle_canvas.configure(scrollregion=self.cycle_canvas.bbox("all"))
+        )
         self.cycle_canvas.create_window((0, 0), window=self.cycle_inner, anchor="nw")
         self.cycle_canvas.configure(yscrollcommand=self.cycle_scroll.set)
         self.cycle_canvas.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(0, 8))
         self.cycle_scroll.pack(side="right", fill="y", padx=(0, 10), pady=(0, 8))
-        self.add_cycle_row()
 
     def add_cycle_row(self):
+        # The virtual keyboard is the key selector. This avoids index/name
+        # mismatches and makes the cycle configuration use exactly the same
+        # mapping as the working per-key controls.
+        key_name = self.selected_key_name
+        if key_name not in KEY_INDEX:
+            messagebox.showwarning(
+                "Клавиша не выбрана",
+                "Сначала нажми нужную клавишу на виртуальной клавиатуре, затем нажми «+ Добавить клавишу»."
+            )
+            return
+
+        key_index = KEY_INDEX[key_name]
         row = tk.Frame(self.cycle_inner, bd=1, relief="groove", padx=7, pady=5)
         row.pack(fill="x", padx=5, pady=4)
-        key_var = tk.StringVar(value=self.selected_key_name or "A")
-        count_var = tk.IntVar(value=2)
-        colors = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 255, 0), (255, 0, 255)]
-        color_buttons = []
 
         tk.Label(row, text="Клавиша:").pack(side="left")
-        combo = ttk.Combobox(row, textvariable=key_var, values=list(KEY_INDEX.keys()), state="readonly", width=10)
-        combo.pack(side="left", padx=4)
+        key_label = tk.Label(row, text=f"{key_name}  (LED {key_index})", width=16, anchor="w", font=("Segoe UI", 9, "bold"))
+        key_label.pack(side="left", padx=4)
 
         tk.Label(row, text="Цветов:").pack(side="left", padx=(10, 2))
+        count_var = tk.IntVar(value=2)
         count = ttk.Combobox(row, textvariable=count_var, values=(2, 3, 4, 5), state="readonly", width=4)
         count.pack(side="left")
 
         color_frame = tk.Frame(row)
         color_frame.pack(side="left", padx=8)
+        colors = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 255, 0), (255, 0, 255)]
+        color_buttons = []
 
         def redraw_colors():
             for w in color_frame.winfo_children():
                 w.destroy()
             color_buttons.clear()
             for i in range(count_var.get()):
-                b = tk.Button(color_frame, text=f"{i+1}", width=4, command=lambda i=i: choose_cycle_color(i, colors, color_buttons))
+                b = tk.Button(
+                    color_frame, text=f"{i + 1}", width=4,
+                    command=lambda i=i: choose_cycle_color(i)
+                )
                 b.pack(side="left", padx=2)
-                color_buttons.append(b)
                 b.configure(bg=rgb_hex(colors[i]), activebackground=rgb_hex(colors[i]))
+                color_buttons.append(b)
 
-        def choose_cycle_color(i, colors_ref, buttons_ref):
-            result = colorchooser.askcolor(initialcolor=rgb_hex(colors_ref[i]), title=f"Цвет {i+1}")
+        def choose_cycle_color(i):
+            result = colorchooser.askcolor(
+                initialcolor=rgb_hex(colors[i]),
+                title=f"Цвет {i + 1} для {key_name}"
+            )
             if result and result[0]:
-                colors_ref[i] = tuple(map(int, result[0]))
-                buttons_ref[i].configure(bg=rgb_hex(colors_ref[i]), activebackground=rgb_hex(colors_ref[i]))
+                colors[i] = tuple(map(int, result[0]))
+                color_buttons[i].configure(
+                    bg=rgb_hex(colors[i]),
+                    activebackground=rgb_hex(colors[i])
+                )
 
         count.bind("<<ComboboxSelected>>", lambda e: redraw_colors())
         redraw_colors()
 
         interval_var = tk.DoubleVar(value=1.0)
         tk.Label(row, text="Интервал:").pack(side="left", padx=(8, 2))
-        ttk.Spinbox(row, from_=0.1, to=60.0, increment=0.1, width=6, textvariable=interval_var).pack(side="left")
+        ttk.Spinbox(
+            row, from_=0.1, to=60.0, increment=0.1, width=6,
+            textvariable=interval_var
+        ).pack(side="left")
         tk.Label(row, text="с").pack(side="left", padx=2)
 
         job_id = None
@@ -297,7 +332,11 @@ class Type84RGB:
             nonlocal job_id
             if job_id is not None:
                 self.stop_cycle_job(job_id)
-            job_id = self.start_cycle_for_config(key_var.get(), colors, interval_var.get())
+            # IMPORTANT: only the selected 2–5 colors are passed to the worker.
+            selected_colors = [tuple(c) for c in colors[:count_var.get()]]
+            job_id = self.start_cycle_for_config(
+                key_name, selected_colors, interval_var.get()
+            )
 
         def stop_row():
             nonlocal job_id
@@ -383,23 +422,14 @@ class Type84RGB:
 
     # ---------------- Brightness ----------------
     def apply_brightness(self):
-        raw = self.brightness_var.get().strip()
-        try:
-            level = int(raw)
-        except ValueError:
-            messagebox.showwarning("Яркость", "Введи целое число.")
-            return
-
-        # UI does not impose a limit. HID RGB channels themselves are 0..255,
-        # so the effective multiplier is safely bounded when creating packets.
-        self.brightness_level = level
+        self.brightness_level = int(self.brightness_var.get())
         if self.custom_mode_active:
             ok = self.send_per_key_state()
         else:
             ok = self.send(self.make_static(*self.background), log=True)
 
         if ok:
-            self.status.set(f"💡 Яркость применена: {level}")
+            self.status.set(f"💡 Яркость применена: {self.brightness_level}")
 
     def scale_rgb(self, color):
         # Treat 255 as full brightness. Values outside the RGB range are
@@ -455,6 +485,18 @@ class Type84RGB:
         if result and result[0]:
             self.key_color = tuple(map(int, result[0]))
             self.send_selected_key()
+
+    def choose_all_custom_color(self):
+        result = colorchooser.askcolor(
+            initialcolor=rgb_hex(self.key_color),
+            title="Цвет всех клавиш в пользовательском режиме"
+        )
+        if not result or not result[0]:
+            return
+        self.key_color = tuple(map(int, result[0]))
+        self.per_key_colors = [self.key_color for _ in range(LED_COUNT)]
+        if self.send_per_key_state():
+            self.status.set(f"🎨 Все клавиши: {rgb_hex(self.key_color)}")
 
     def make_per_key_packets(self, colors):
         # Protocol observed in Wireshark: AA 24 38 + byte offset (little-endian) + 00 00 00,
@@ -518,7 +560,12 @@ class Type84RGB:
             messagebox.showwarning("Клавиша", "Выбрана неизвестная клавиша.")
             return None
         idx = KEY_INDEX[key_name]
-        cycle_colors = [tuple(c) for c in colors[:5]]
+        cycle_colors = [tuple(c) for c in colors]
+        if len(cycle_colors) < 2:
+            messagebox.showwarning("Переливание", "Нужно выбрать минимум 2 цвета.")
+            return None
+        if len(cycle_colors) > 5:
+            cycle_colors = cycle_colors[:5]
         interval = max(0.1, float(interval))
         self.cycle_job_counter += 1
         job_id = self.cycle_job_counter
@@ -582,6 +629,8 @@ class Type84RGB:
                 widget.configure(bg=button, fg=fg, insertbackground=fg)
             elif cls == "Entry":
                 widget.configure(bg=button, fg=fg, insertbackground=fg)
+            elif cls == "Scale":
+                widget.configure(bg=bg, fg=fg, troughcolor=button, activebackground=button, highlightbackground=bg)
             elif cls == "Button":
                 if widget is not self.theme_button and widget in self.keyboard_buttons.values():
                     return
