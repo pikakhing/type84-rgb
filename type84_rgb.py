@@ -630,30 +630,117 @@ class Type84RGB:
     # PER-KEY PACKET
     # =========================================================
 
-    def make_per_key_packet(self, led_index, r, g, b):
-
+    def make_per_key_packets(self, led_index, r, g, b):
         """
-        Формат подтверждённого начала Per-Key blob:
+        Официальный Per-Key blob Type 84.
 
-        AA 24 38
-        ...
+        Всего 128 LED-индексов: 0..127.
 
-        Каждая клавиша представляется 4 байтами:
+        Формат одного отчёта:
 
-        [LED_INDEX] [R] [G] [B]
+            AA 24 38 OFFSET_LO OFFSET_HI 00 FINAL 00
+            INDEX R G B
+            INDEX R G B
+            ...
 
-        При этом полный официальный пакет состоит
-        из 10 HID OUT reports.
+        Первые 9 пакетов содержат по 14 LED-записей.
+        Последний пакет содержит LED 126 и 127.
 
-        Эта функция формирует один report.
+        Каждый LED занимает ровно 4 байта:
+
+            [index] [R] [G] [B]
+
+        Для выключенного LED:
+            [index] 00 00 00
         """
 
-        packet = [0] * 64
+        if not 0 <= led_index <= 127:
+            raise ValueError(
+                "LED index должен быть от 0 до 127"
+            )
 
-        return packet
+        if not all(0 <= x <= 255 for x in (r, g, b)):
+            raise ValueError(
+                "R, G и B должны быть от 0 до 255"
+            )
+
+        packets = []
+
+        # 128 LED / 14 LED на пакет = 10 пакетов
+        for packet_number in range(10):
+
+            packet = [0] * REPORT_SIZE
+
+            start_index = packet_number * 14
+            offset = start_index * 4
+
+            # -------------------------------------------------
+            # Header
+            # -------------------------------------------------
+
+            packet[0] = 0xAA
+            packet[1] = 0x24
+
+            # Первые 9 пакетов: 38
+            # Последний пакет: 08
+            if packet_number < 9:
+                packet[2] = 0x38
+            else:
+                packet[2] = 0x08
+
+            # Смещение blob в байтах.
+            #
+            # 0x0000
+            # 0x0038
+            # 0x0070
+            # 0x00A8
+            # ...
+            # 0x01F8
+            #
+            packet[3] = offset & 0xFF
+            packet[4] = (offset >> 8) & 0xFF
+
+            packet[5] = 0x00
+
+            # Только последний пакет имеет FINAL = 01
+            packet[6] = 0x01 if packet_number == 9 else 0x00
+
+            packet[7] = 0x00
+
+            # -------------------------------------------------
+            # LED records
+            # -------------------------------------------------
+
+            for slot in range(14):
+
+                index = start_index + slot
+
+                if index >= 128:
+                    break
+
+                pos = 8 + slot * 4
+
+                # LED index
+                packet[pos] = index
+
+                # Цвет
+                if index == led_index:
+                    packet[pos + 1] = r
+                    packet[pos + 2] = g
+                    packet[pos + 3] = b
+
+                else:
+                    packet[pos + 1] = 0x00
+                    packet[pos + 2] = 0x00
+                    packet[pos + 3] = 0x00
+
+            packets.append(packet)
+
+        return packets
+
 
     # =========================================================
-    # PER-KEY TEST
+    # SEND PER-KEY
     # =========================================================
 
     def send_per_key(self):
@@ -668,6 +755,7 @@ class Type84RGB:
             return
 
         try:
+
             index = int(
                 self.key_index_var.get()
             )
@@ -677,6 +765,15 @@ class Type84RGB:
             messagebox.showerror(
                 "Ошибка",
                 "Индекс должен быть числом."
+            )
+
+            return
+
+        if not 0 <= index <= 127:
+
+            messagebox.showerror(
+                "Ошибка",
+                "Индекс LED должен быть от 0 до 127."
             )
 
             return
@@ -692,14 +789,69 @@ class Type84RGB:
             f"Color = #{r:02X}{g:02X}{b:02X}"
         )
 
-        messagebox.showinfo(
-            "Per-Key",
-            "Пока не отправляю неподтверждённый "
-            "Per-Key blob.\n\n"
-            "Сначала используем подтверждённые "
-            "пакеты из Wireshark для построения "
-            "полного набора из 10 reports."
-        )
+        try:
+
+            packets = self.make_per_key_packets(
+                index,
+                r,
+                g,
+                b
+            )
+
+            # ВАЖНО:
+            # Отправляем все 10 OUT-пакетов.
+            #
+            # Между ними send() делает задержку 20 мс.
+            #
+            for number, packet in enumerate(
+                packets,
+                start=1
+            ):
+
+                self.log(
+                    f"Per-Key packet "
+                    f"{number}/10"
+                )
+
+                ok = self.send(
+                    packet,
+                    delay=True
+                )
+
+                if not ok:
+
+                    self.log(
+                        f"❌ Per-Key packet "
+                        f"{number}/10 не отправлен"
+                    )
+
+                    self.status.set(
+                        "❌ Ошибка Per-Key"
+                    )
+
+                    return
+
+            self.status.set(
+                f"🟢 LED {index} установлен: "
+                f"#{r:02X}{g:02X}{b:02X}"
+            )
+
+            self.log(
+                "✅ Все 10 Per-Key пакетов отправлены."
+            )
+
+        except Exception as e:
+
+            self.log(
+                "PER-KEY ERROR: "
+                + repr(e)
+            )
+
+            messagebox.showerror(
+                "Per-Key ошибка",
+                repr(e)
+            )
+
 
     # =========================================================
     # DISABLE SELECTED
@@ -707,13 +859,18 @@ class Type84RGB:
 
     def disable_selected_key(self):
 
-        self.key_color = (0, 0, 0)
+        old_color = self.key_color
 
-        self.log(
-            "Выбранный LED установлен в выключенное состояние."
-        )
+        try:
 
-        self.send_per_key()
+            self.key_color = (0, 0, 0)
+
+            self.send_per_key()
+
+        finally:
+
+            self.key_color = old_color
+
 
     # =========================================================
     # DISABLE ALL
@@ -721,17 +878,119 @@ class Type84RGB:
 
     def disable_all_keys(self):
 
-        self.log(
-            "Выключение всех LED: "
-            "полный Per-Key blob пока не отправляется."
-        )
+        if not self.device:
 
-        messagebox.showinfo(
-            "Per-Key",
-            "Для корректного выключения всех клавиш "
-            "нужно отправлять полный официальный "
-            "Per-Key blob из 10 пакетов."
-        )
+            messagebox.showwarning(
+                "Нет подключения",
+                "Сначала подключи MI_02."
+            )
+
+            return
+
+        try:
+
+            packets = self.make_per_key_packets(
+                255,
+                0,
+                0,
+                0
+            )
+
+        except ValueError:
+            # Нам нужен специальный вариант:
+            # все 128 LED = 00 00 00.
+            packets = []
+
+            for packet_number in range(10):
+
+                packet = [0] * REPORT_SIZE
+
+                start_index = packet_number * 14
+                offset = start_index * 4
+
+                packet[0] = 0xAA
+                packet[1] = 0x24
+                packet[2] = (
+                    0x08
+                    if packet_number == 9
+                    else 0x38
+                )
+
+                packet[3] = offset & 0xFF
+                packet[4] = (offset >> 8) & 0xFF
+                packet[5] = 0x00
+                packet[6] = (
+                    0x01
+                    if packet_number == 9
+                    else 0x00
+                )
+                packet[7] = 0x00
+
+                for slot in range(14):
+
+                    index = start_index + slot
+
+                    if index >= 128:
+                        break
+
+                    pos = 8 + slot * 4
+
+                    packet[pos] = index
+                    packet[pos + 1] = 0x00
+                    packet[pos + 2] = 0x00
+                    packet[pos + 3] = 0x00
+
+                packets.append(packet)
+
+        try:
+
+            self.log("")
+            self.log(
+                "=== DISABLE ALL LED ==="
+            )
+
+            for number, packet in enumerate(
+                packets,
+                start=1
+            ):
+
+                self.log(
+                    f"Disable packet "
+                    f"{number}/10"
+                )
+
+                ok = self.send(
+                    packet,
+                    delay=True
+                )
+
+                if not ok:
+
+                    self.status.set(
+                        "❌ Ошибка выключения LED"
+                    )
+
+                    return
+
+            self.status.set(
+                "⬛ Все LED выключены"
+            )
+
+            self.log(
+                "✅ Все 10 Per-Key пакетов отправлены."
+            )
+
+        except Exception as e:
+
+            self.log(
+                "DISABLE ALL ERROR: "
+                + repr(e)
+            )
+
+            messagebox.showerror(
+                "Ошибка",
+                repr(e)
+            )
 
     # =========================================================
     # CLOSE
