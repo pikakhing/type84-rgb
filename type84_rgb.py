@@ -637,77 +637,77 @@ class Type84RGB:
     # =========================================================
 
     def make_per_key_packets(self):
-    """
-    Создаёт полный официальный Per-Key blob из 10 HID reports.
+        """
+        Создаёт полный официальный Per-Key blob из 10 HID reports.
 
-    self.per_key_colors содержит состояние всех 128 LED.
-    Поэтому изменение одной клавиши НЕ выключает остальные.
-    """
+        self.per_key_colors содержит состояние всех 128 LED.
+        Поэтому изменение одной клавиши НЕ выключает остальные.
+        """
 
-    packets = []
+        packets = []
 
-    for packet_number in range(10):
+        for packet_number in range(10):
 
-        packet = [0] * REPORT_SIZE
+            packet = [0] * REPORT_SIZE
 
-        start_index = packet_number * 14
-        offset = start_index * 4
+            start_index = packet_number * 14
+            offset = start_index * 4
 
         # -------------------------------------------------
         # Header
         # -------------------------------------------------
 
-        packet[0] = 0xAA
-        packet[1] = 0x24
+            packet[0] = 0xAA
+            packet[1] = 0x24
 
-        # Первые 9:
-        # AA 24 38 ...
-        #
-        # Последний:
-        # AA 24 08 ...
-        packet[2] = (
-            0x08
-            if packet_number == 9
-            else 0x38
-        )
+            # Первые 9:
+            # AA 24 38 ...
+            #
+            # Последний:
+            # AA 24 08 ...
+            packet[2] = (
+                0x08
+                if packet_number == 9
+                else 0x38
+            )
 
-        packet[3] = offset & 0xFF
-        packet[4] = (offset >> 8) & 0xFF
+            packet[3] = offset & 0xFF
+            packet[4] = (offset >> 8) & 0xFF
 
-        packet[5] = 0x00
+            packet[5] = 0x00
 
-        # Последний пакет = 01
-        packet[6] = (
-            0x01
-            if packet_number == 9
-            else 0x00
-        )
+            # Последний пакет = 01
+            packet[6] = (
+                0x01
+                if packet_number == 9
+                else 0x00
+            )
 
-        packet[7] = 0x00
+            packet[7] = 0x00
 
         # -------------------------------------------------
         # LED records
         # -------------------------------------------------
 
-        for slot in range(14):
+            for slot in range(14):
 
-            index = start_index + slot
+                index = start_index + slot
 
-            if index >= 128:
-                break
+                if index >= 128:
+                    break
 
-            pos = 8 + slot * 4
+                pos = 8 + slot * 4
 
-            r, g, b = self.per_key_colors[index]
+                r, g, b = self.per_key_colors[index]
 
-            packet[pos] = index
-            packet[pos + 1] = r
-            packet[pos + 2] = g
-            packet[pos + 3] = b
+                packet[pos] = index
+                packet[pos + 1] = r
+                packet[pos + 2] = g
+                packet[pos + 3] = b
 
-        packets.append(packet)
+            packets.append(packet)
 
-    return packets
+        return packets
 
     # =========================================================
     # SEND PER-KEY
