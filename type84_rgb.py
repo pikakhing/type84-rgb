@@ -1,2454 +1,585 @@
-
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 import hid
 import threading
 import time
 
-
-# ============================================================
-# DEVICE
-# ============================================================
-
 VID = 0x0C45
 PID = 0x8009
-
 INTERFACE = 2
 USAGE_PAGE = 0xFF68
 USAGE = 0x61
-
 REPORT_SIZE = 64
-
-# Между OUT-пакетами.
 PACKET_DELAY = 0.020
-
-# Количество LED в Per-Key протоколе.
 LED_COUNT = 128
 
-
-# ============================================================
-# LED INDEX MAP
-# ============================================================
-#
-# Это НЕ порядковые номера физических клавиш.
-# Это реальные LED index, которые мы получили экспериментом.
-#
-# Поэтому здесь специально нет никакого +1, -1,
-# смещения после 20 и т.п.
-#
-
-
 KEY_INDEX = {
-
-    # --------------------------------------------------------
-    # F-row
-    # --------------------------------------------------------
-
-    "Esc": 0,
-
-    "F1": 1,
-    "F2": 2,
-    "F3": 3,
-    "F4": 4,
-    "F5": 5,
-    "F6": 6,
-    "F7": 7,
-    "F8": 8,
-    "F9": 9,
-    "F10": 10,
-    "F11": 11,
-    "F12": 12,
-
-
-    # --------------------------------------------------------
-    # Number row
-    # --------------------------------------------------------
-
-    "Ё": 16,
-
-    "1": 17,
-    "2": 18,
-    "3": 19,
-    "4": 20,
-    "5": 21,
-    "6": 22,
-    "7": 23,
-    "8": 24,
-    "9": 25,
-    "0": 26,
-
-    "-": 27,
-    "=": 28,
-
-
-    # --------------------------------------------------------
-    # Q row
-    # --------------------------------------------------------
-
-    "Tab": 32,
-
-    "Q": 33,
-    "W": 34,
-    "E": 35,
-    "R": 36,
-    "T": 37,
-    "Y": 38,
-    "U": 39,
-    "I": 40,
-    "O": 41,
-    "P": 42,
-
-    "[": 43,
-    "]": 44,
-
-
-    # --------------------------------------------------------
-    # A row
-    # --------------------------------------------------------
-
-    "Caps": 48,
-
-    "A": 49,
-    "S": 50,
-    "D": 51,
-    "F": 52,
-    "G": 53,
-    "H": 54,
-    "J": 55,
-    "K": 56,
-    "L": 57,
-
-    ";": 58,
-    "'": 59,
-
-    "\\": 60,
-
-
-    # --------------------------------------------------------
-    # Z row
-    # --------------------------------------------------------
-
-    "LShift": 64,
-
-    "Z": 65,
-    "X": 66,
-    "C": 67,
-    "V": 68,
-    "B": 69,
-    "N": 70,
-    "M": 71,
-
-    ",": 72,
-    ".": 73,
-    "/": 74,
-
-    "RShift": 75,
-
-
-    # --------------------------------------------------------
-    # Bottom row
-    # --------------------------------------------------------
-
-    "Enter": 76,
-
-    "LCtrl": 80,
-    "Win": 81,
-    "LAlt": 82,
-    "Space": 83,
-    "RAlt": 84,
-    "Fn": 85,
-    "RCtrl": 87,
-
-
-    # --------------------------------------------------------
-    # Navigation
-    # --------------------------------------------------------
-
-    "Left": 88,
-    "Down": 89,
-    "Up": 90,
-    "Right": 91,
-
-    "Backspace": 92,
-
-    "Insert": 103,
-    "Home": 104,
-    "PgUp": 105,
-    "Delete": 106,
-    "End": 107,
-    "PgDn": 108,
+    "Esc": 0, "F1": 1, "F2": 2, "F3": 3, "F4": 4, "F5": 5, "F6": 6,
+    "F7": 7, "F8": 8, "F9": 9, "F10": 10, "F11": 11, "F12": 12,
+    "Ё": 16, "1": 17, "2": 18, "3": 19, "4": 20, "5": 21, "6": 22,
+    "7": 23, "8": 24, "9": 25, "0": 26, "-": 27, "=": 28,
+    "Tab": 32, "Q": 33, "W": 34, "E": 35, "R": 36, "T": 37, "Y": 38,
+    "U": 39, "I": 40, "O": 41, "P": 42, "[": 43, "]": 44,
+    "Caps": 48, "A": 49, "S": 50, "D": 51, "F": 52, "G": 53, "H": 54,
+    "J": 55, "K": 56, "L": 57, ";": 58, "'": 59, "\\": 60,
+    "LShift": 64, "Z": 65, "X": 66, "C": 67, "V": 68, "B": 69, "N": 70,
+    "M": 71, ",": 72, ".": 73, "/": 74, "RShift": 75, "Enter": 76,
+    "LCtrl": 80, "Win": 81, "LAlt": 82, "Space": 83, "RAlt": 84,
+    "Fn": 85, "RCtrl": 87, "Left": 88, "Down": 89, "Up": 90, "Right": 91,
+    "Backspace": 92, "Insert": 103, "Home": 104, "PgUp": 105,
+    "Delete": 106, "End": 107, "PgDn": 108,
 }
 
+# Keyboard positions. Empty cells are intentional gaps in the physical layout.
+KEY_LAYOUT = [
+    [
+        ("Esc", 0, 0, 1, 1), ("F1", 1, 1, 1, 1), ("F2", 2, 2, 1, 1),
+        ("F3", 3, 3, 1, 1), ("F4", 4, 4, 1, 1), ("F5", 5, 5, 1, 1),
+        ("F6", 6, 6, 1, 1), ("F7", 7, 7, 1, 1), ("F8", 8, 8, 1, 1),
+        ("F9", 9, 9, 1, 1), ("F10", 10, 10, 1, 1), ("F11", 11, 11, 1, 1),
+        ("F12", 12, 12, 1, 1), ("VOL", None, 14, 1, 1),
+        ("Home", 104, 16, 1, 1), ("End", 107, 17, 1, 1),
+    ],
+    [
+        ("Ё", 16, 0, 1, 1), ("1", 17, 1, 1, 1), ("2", 18, 2, 1, 1),
+        ("3", 19, 3, 1, 1), ("4", 20, 4, 1, 1), ("5", 21, 5, 1, 1),
+        ("6", 22, 6, 1, 1), ("7", 23, 7, 1, 1), ("8", 24, 8, 1, 1),
+        ("9", 25, 9, 1, 1), ("0", 26, 10, 1, 1), ("-", 27, 11, 1, 1),
+        ("=", 28, 12, 1, 1), ("Backspace", 92, 13, 1, 1),
+        ("Insert", 103, 16, 1, 1), ("PgUp", 105, 17, 1, 1),
+    ],
+    [
+        ("Tab", 32, 0, 1, 1), ("Q", 33, 1, 1, 1), ("W", 34, 2, 1, 1),
+        ("E", 35, 3, 1, 1), ("R", 36, 4, 1, 1), ("T", 37, 5, 1, 1),
+        ("Y", 38, 6, 1, 1), ("U", 39, 7, 1, 1), ("I", 40, 8, 1, 1),
+        ("O", 41, 9, 1, 1), ("P", 42, 10, 1, 1), ("[", 43, 11, 1, 1),
+        ("]", 44, 12, 1, 1), ("Enter", 76, 13, 1, 2),
+        ("Delete", 106, 16, 1, 1), ("PgDn", 108, 17, 1, 1),
+    ],
+    [
+        ("Caps", 48, 0, 1, 1), ("A", 49, 1, 1, 1), ("S", 50, 2, 1, 1),
+        ("D", 51, 3, 1, 1), ("F", 52, 4, 1, 1), ("G", 53, 5, 1, 1),
+        ("H", 54, 6, 1, 1), ("J", 55, 7, 1, 1), ("K", 56, 8, 1, 1),
+        ("L", 57, 9, 1, 1), (";", 58, 10, 1, 1), ("'", 59, 11, 1, 1),
+        ("\\", 60, 12, 1, 1),
+    ],
+    [
+        ("LShift", 64, 0, 2, 1), ("Z", 65, 2, 1, 1), ("X", 66, 3, 1, 1),
+        ("C", 67, 4, 1, 1), ("V", 68, 5, 1, 1), ("B", 69, 6, 1, 1),
+        ("N", 70, 7, 1, 1), ("M", 71, 8, 1, 1), (",", 72, 9, 1, 1),
+        (".", 73, 10, 1, 1), ("/", 74, 11, 1, 1), ("RShift", 75, 12, 2, 1),
+    ],
+    [
+        ("LCtrl", 80, 0, 1, 1), ("Win", 81, 1, 1, 1), ("LAlt", 82, 2, 1, 1),
+        ("Space", 83, 3, 6, 1), ("RAlt", 84, 9, 1, 1), ("Fn", 85, 10, 1, 1),
+        ("RCtrl", 87, 11, 1, 1), ("Left", 88, 15, 1, 1), ("Down", 89, 16, 1, 1), ("Right", 91, 17, 1, 1),
+    ],
+    [
+        ("Up", 90, 16, 1, 1),
+    ],
+]
 
-# ============================================================
-# UI KEY LABELS
-# ============================================================
 
-# Отображаемое имя → LED index.
-#
-# Отдельно от KEY_INDEX, чтобы можно было сделать нормальную
-# клавиатурную раскладку в интерфейсе.
+LIGHT_BG = "#E7E4E8"
+LIGHT_BUTTON = "#D4D0D6"
+DARK_BG = "#2B2B2F"
+DARK_BUTTON = "#3B3B42"
+KEY_BG = "#514952"
+KEY_SELECTED = "#746B77"
+TEXT_LIGHT = "#202024"
+TEXT_DARK = "#F0EDF2"
+
+
+def clamp_color(c):
+    return tuple(max(0, min(255, int(x))) for x in c)
+
+
+def rgb_hex(c):
+    return "#%02X%02X%02X" % tuple(c)
 
 
 class Type84RGB:
-
     def __init__(self, root):
-
         self.root = root
-
-        self.root.title(
-            "Red Square IO Type 84 RGB"
-        )
-
-        self.root.geometry(
-            "1050x900"
-        )
-
-        self.root.minsize(
-            900,
-            750
-        )
-
-
-        # ----------------------------------------------------
-        # Device
-        # ----------------------------------------------------
+        self.root.title("Red Square IO Type 84 RGB")
+        self.root.geometry("1180x920")
+        self.root.minsize(1000, 800)
 
         self.device = None
         self.device_info = None
-
-
-        # ----------------------------------------------------
-        # State
-        # ----------------------------------------------------
-
-        self.background = (
-            255,
-            0,
-            0
-        )
-
-        self.key_color = (
-            255,
-            0,
-            0
-        )
-
-
-        # ----------------------------------------------------
-        # ВСЕ 128 LED.
-        #
-        # Очень важно:
-        # при изменении одной клавиши остальные цвета
-        # НЕ должны превращаться в 00 00 00.
-        # ----------------------------------------------------
-
-        self.per_key_colors = [
-            (0, 0, 0)
-            for _ in range(LED_COUNT)
-        ]
-
-
-        # ----------------------------------------------------
-        # Selected key
-        # ----------------------------------------------------
-
+        self.background = (255, 0, 0)
+        self.key_color = (255, 0, 0)
+        self.per_key_colors = [(0, 0, 0) for _ in range(LED_COUNT)]
         self.selected_key_name = None
         self.selected_key_index = None
-
-
-        # ----------------------------------------------------
-        # Custom cycle
-        # ----------------------------------------------------
-
-        self.key_cycle_running = False
-
-        self.key_cycle_thread_obj = None
-
-        self.key_cycle_color_1 = (
-            255,
-            0,
-            0
-        )
-
-        self.key_cycle_color_2 = (
-            0,
-            0,
-            255
-        )
-
-
-        # ----------------------------------------------------
-        # Whole keyboard cycle
-        # ----------------------------------------------------
-
         self.running = False
-
-
-        # ----------------------------------------------------
-        # UI
-        # ----------------------------------------------------
+        self.key_cycle_running = False
+        self.key_cycle_thread_obj = None
+        self.cycle_jobs = {}
+        self.cycle_job_counter = 0
+        self.per_key_send_lock = threading.Lock()
+        self.custom_mode_active = False
+        self.dark_mode = False
+        self.cycle_colors = [(255, 0, 0), (0, 0, 255)]
+        self.cycle_interval = 1.0
+        self.cycle_rows = []
 
         self.build_ui()
+        self.apply_theme()
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
 
-
-        # ----------------------------------------------------
-        # Close
-        # ----------------------------------------------------
-
-        self.root.protocol(
-            "WM_DELETE_WINDOW",
-            self.close
-        )
-
-
-    # ========================================================
-    # UI
-    # ========================================================
-
+    # ---------------- UI ----------------
     def build_ui(self):
+        header = tk.Frame(self.root)
+        header.pack(fill="x", padx=18, pady=(12, 6))
+        self.header = header
 
-        # ----------------------------------------------------
-        # Header
-        # ----------------------------------------------------
+        tk.Label(header, text="Red Square IO Type 84 RGB", font=("Segoe UI", 18, "bold")).pack(side="left")
+        self.theme_button = tk.Button(header, text="☾ Тёмная тема", command=self.toggle_theme, relief="flat", padx=12, pady=5)
+        self.theme_button.pack(side="right")
 
-        ttk.Label(
-            self.root,
-            text="Red Square IO Type 84 RGB",
-            font=(
-                "Segoe UI",
-                18,
-                "bold"
-            )
-        ).pack(
-            pady=(12, 3)
-        )
+        self.status = tk.StringVar(value="Устройство не подключено")
+        self.status_label = tk.Label(self.root, textvariable=self.status, font=("Segoe UI", 10))
+        self.status_label.pack(pady=(0, 7))
 
+        device = tk.Frame(self.root)
+        device.pack(fill="x", padx=25)
+        self.device_frame = device
+        self.make_ui_button(device, "1. Найти клавиатуру", self.scan).pack(side="left", fill="x", expand=True, padx=3)
+        self.make_ui_button(device, "2. Подключить MI_02", self.connect).pack(side="left", fill="x", expand=True, padx=3)
 
-        ttk.Label(
-            self.root,
-            text="USB 0C45:8009 • MI_02 • FF68/61"
-        ).pack()
+        self.add_separator()
 
+        tk.Label(self.root, text="ВСЯ КЛАВИАТУРА", font=("Segoe UI", 12, "bold")).pack()
+        whole = tk.Frame(self.root)
+        whole.pack(pady=5)
+        self.make_ui_button(whole, "🎨 Выбрать цвет всей клавиатуры", self.choose_background).pack(side="left", padx=4)
+        self.make_ui_button(whole, "👤 Пользовательский режим", self.set_custom_mode).pack(side="left", padx=4)
+        self.make_ui_button(whole, "🌈 Цикл всей клавиатуры", self.toggle_cycle).pack(side="left", padx=4)
 
-        self.status = tk.StringVar(
-            value="Устройство не подключено"
-        )
+        self.add_separator()
 
+        self.selected_label = tk.StringVar(value="Клавиша не выбрана")
+        tk.Label(self.root, textvariable=self.selected_label, font=("Segoe UI", 11, "bold")).pack(pady=(0, 5))
 
-        ttk.Label(
-            self.root,
-            textvariable=self.status,
-            font=(
-                "Segoe UI",
-                11
-            )
-        ).pack(
-            pady=8
-        )
-
-
-        # ----------------------------------------------------
-        # Device buttons
-        # ----------------------------------------------------
-
-        device_frame = ttk.Frame(
-            self.root
-        )
-
-        device_frame.pack(
-            fill="x",
-            padx=25
-        )
-
-
-        ttk.Button(
-            device_frame,
-            text="1. Найти клавиатуру",
-            command=self.scan
-        ).pack(
-            side="left",
-            fill="x",
-            expand=True,
-            padx=3
-        )
-
-
-        ttk.Button(
-            device_frame,
-            text="2. Подключить MI_02",
-            command=self.connect
-        ).pack(
-            side="left",
-            fill="x",
-            expand=True,
-            padx=3
-        )
-
-
-        ttk.Separator(
-            self.root,
-            orient="horizontal"
-        ).pack(
-            fill="x",
-            padx=25,
-            pady=10
-        )
-
-
-        # ----------------------------------------------------
-        # Whole keyboard
-        # ----------------------------------------------------
-
-        ttk.Label(
-            self.root,
-            text="ВСЯ КЛАВИАТУРА",
-            font=(
-                "Segoe UI",
-                12,
-                "bold"
-            )
-        ).pack()
-
-
-        whole_frame = ttk.Frame(
-            self.root
-        )
-
-        whole_frame.pack(
-            pady=5
-        )
-
-
-        ttk.Button(
-            whole_frame,
-            text="🎨 Выбрать цвет всей клавиатуры",
-            command=self.choose_background
-        ).pack(
-            side="left",
-            padx=4
-        )
-
-
-        ttk.Button(
-            whole_frame,
-            text="👤 Пользовательский режим",
-            command=self.set_custom_mode
-        ).pack(
-            side="left",
-            padx=4
-        )
-
-
-        ttk.Button(
-            whole_frame,
-            text="🌈 Цикл всей клавиатуры",
-            command=self.toggle_cycle
-        ).pack(
-            side="left",
-            padx=4
-        )
-
-
-        ttk.Separator(
-            self.root,
-            orient="horizontal"
-        ).pack(
-            fill="x",
-            padx=25,
-            pady=10
-        )
-
-
-        # ----------------------------------------------------
-        # Selected key information
-        # ----------------------------------------------------
-
-        self.selected_label = tk.StringVar(
-            value="Клавиша не выбрана"
-        )
-
-
-        ttk.Label(
-            self.root,
-            textvariable=self.selected_label,
-            font=(
-                "Segoe UI",
-                11,
-                "bold"
-            )
-        ).pack(
-            pady=(2, 5)
-        )
-
-
-        # ----------------------------------------------------
-        # Keyboard panel
-        # ----------------------------------------------------
-
-        keyboard_outer = ttk.Frame(
-            self.root
-        )
-
-        keyboard_outer.pack(
-            fill="x",
-            padx=20
-        )
-
-
-        self.keyboard_frame = tk.Frame(
-            keyboard_outer
-        )
-
+        keyboard_outer = tk.Frame(self.root)
+        keyboard_outer.pack(fill="x", padx=20)
+        self.keyboard_frame = tk.Frame(keyboard_outer)
         self.keyboard_frame.pack()
-
-
         self.keyboard_buttons = {}
-
-
         self.build_keyboard()
 
+        self.add_separator()
 
-        # ----------------------------------------------------
-        # Per-Key controls
-        # ----------------------------------------------------
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="x", padx=20, pady=(0, 7))
+        self.per_key_tab = tk.Frame(self.notebook)
+        self.cycle_tab = tk.Frame(self.notebook)
+        self.notebook.add(self.per_key_tab, text="Клавиша")
+        self.notebook.add(self.cycle_tab, text="Переливающиеся клавиши")
 
-        ttk.Separator(
-            self.root,
-            orient="horizontal"
-        ).pack(
-            fill="x",
-            padx=25,
-            pady=10
-        )
+        self.build_per_key_tab()
+        self.build_cycle_tab()
 
+        self.log_box = tk.Text(self.root, height=7, state="disabled", wrap="none")
+        self.log_box.pack(fill="both", expand=True, padx=25, pady=(4, 12))
 
-        ttk.Label(
-            self.root,
-            text="PER-KEY",
-            font=(
-                "Segoe UI",
-                12,
-                "bold"
-            )
-        ).pack()
+    def add_separator(self):
+        tk.Frame(self.root, height=1).pack(fill="x", padx=25, pady=8)
 
+    def make_ui_button(self, parent, text, command):
+        return tk.Button(parent, text=text, command=command, relief="raised", bd=1, padx=8, pady=5)
 
-        controls = ttk.Frame(
-            self.root
-        )
+    def build_per_key_tab(self):
+        controls = tk.Frame(self.per_key_tab)
+        controls.pack(pady=6)
+        self.make_ui_button(controls, "🎨 Выбрать цвет", self.choose_key_color).grid(row=0, column=0, padx=4)
+        self.make_ui_button(controls, "🟢 Отправить цвет", self.send_selected_key).grid(row=0, column=1, padx=4)
+        self.make_ui_button(controls, "⬛ Выключить", self.disable_selected_key).grid(row=0, column=2, padx=4)
+        self.make_ui_button(controls, "⬛ Выключить все", self.disable_all_keys).grid(row=0, column=3, padx=4)
 
-        controls.pack(
-            pady=5
-        )
+    def build_cycle_tab(self):
+        top = tk.Frame(self.cycle_tab)
+        top.pack(fill="x", padx=10, pady=6)
+        tk.Label(top, text="Добавляй отдельные клавиши и для каждой выбирай от 2 до 5 цветов.").pack(side="left")
+        self.make_ui_button(top, "+ Добавить клавишу", self.add_cycle_row).pack(side="right")
 
+        self.cycle_canvas = tk.Canvas(self.cycle_tab, height=150, highlightthickness=0)
+        self.cycle_scroll = ttk.Scrollbar(self.cycle_tab, orient="vertical", command=self.cycle_canvas.yview)
+        self.cycle_inner = tk.Frame(self.cycle_canvas)
+        self.cycle_inner.bind("<Configure>", lambda e: self.cycle_canvas.configure(scrollregion=self.cycle_canvas.bbox("all")))
+        self.cycle_canvas.create_window((0, 0), window=self.cycle_inner, anchor="nw")
+        self.cycle_canvas.configure(yscrollcommand=self.cycle_scroll.set)
+        self.cycle_canvas.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(0, 8))
+        self.cycle_scroll.pack(side="right", fill="y", padx=(0, 10), pady=(0, 8))
+        self.add_cycle_row()
 
-        ttk.Button(
-            controls,
-            text="🎨 Выбрать цвет",
-            command=self.choose_key_color
-        ).grid(
-            row=0,
-            column=0,
-            padx=4
-        )
+    def add_cycle_row(self):
+        row = tk.Frame(self.cycle_inner, bd=1, relief="groove", padx=7, pady=5)
+        row.pack(fill="x", padx=5, pady=4)
+        key_var = tk.StringVar(value=self.selected_key_name or "A")
+        count_var = tk.IntVar(value=2)
+        colors = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 255, 0), (255, 0, 255)]
+        color_buttons = []
 
+        tk.Label(row, text="Клавиша:").pack(side="left")
+        combo = ttk.Combobox(row, textvariable=key_var, values=list(KEY_INDEX.keys()), state="readonly", width=10)
+        combo.pack(side="left", padx=4)
 
-        ttk.Button(
-            controls,
-            text="🟢 Отправить цвет",
-            command=self.send_selected_key
-        ).grid(
-            row=0,
-            column=1,
-            padx=4
-        )
+        tk.Label(row, text="Цветов:").pack(side="left", padx=(10, 2))
+        count = ttk.Combobox(row, textvariable=count_var, values=(2, 3, 4, 5), state="readonly", width=4)
+        count.pack(side="left")
 
+        color_frame = tk.Frame(row)
+        color_frame.pack(side="left", padx=8)
 
-        ttk.Button(
-            controls,
-            text="⬛ Выключить",
-            command=self.disable_selected_key
-        ).grid(
-            row=0,
-            column=2,
-            padx=4
-        )
+        def redraw_colors():
+            for w in color_frame.winfo_children():
+                w.destroy()
+            color_buttons.clear()
+            for i in range(count_var.get()):
+                b = tk.Button(color_frame, text=f"{i+1}", width=4, command=lambda i=i: choose_cycle_color(i, colors, color_buttons))
+                b.pack(side="left", padx=2)
+                color_buttons.append(b)
+                b.configure(bg=rgb_hex(colors[i]), activebackground=rgb_hex(colors[i]))
 
+        def choose_cycle_color(i, colors_ref, buttons_ref):
+            result = colorchooser.askcolor(initialcolor=rgb_hex(colors_ref[i]), title=f"Цвет {i+1}")
+            if result and result[0]:
+                colors_ref[i] = tuple(map(int, result[0]))
+                buttons_ref[i].configure(bg=rgb_hex(colors_ref[i]), activebackground=rgb_hex(colors_ref[i]))
 
-        ttk.Button(
-            controls,
-            text="⬛ Выключить все",
-            command=self.disable_all_keys
-        ).grid(
-            row=0,
-            column=3,
-            padx=4
-        )
+        count.bind("<<ComboboxSelected>>", lambda e: redraw_colors())
+        redraw_colors()
 
+        interval_var = tk.DoubleVar(value=1.0)
+        tk.Label(row, text="Интервал:").pack(side="left", padx=(8, 2))
+        ttk.Spinbox(row, from_=0.1, to=60.0, increment=0.1, width=6, textvariable=interval_var).pack(side="left")
+        tk.Label(row, text="с").pack(side="left", padx=2)
 
-        # ----------------------------------------------------
-        # Cycle controls
-        # ----------------------------------------------------
+        job_id = None
 
-        cycle_frame = ttk.LabelFrame(
-            self.root,
-            text="Цикл выбранной клавиши"
-        )
+        def start_row():
+            nonlocal job_id
+            if job_id is not None:
+                self.stop_cycle_job(job_id)
+            job_id = self.start_cycle_for_config(key_var.get(), colors, interval_var.get())
 
-        cycle_frame.pack(
-            pady=7,
-            padx=20
-        )
+        def stop_row():
+            nonlocal job_id
+            if job_id is not None:
+                self.stop_cycle_job(job_id)
+                job_id = None
 
+        def remove_row():
+            stop_row()
+            row.destroy()
 
-        ttk.Button(
-            cycle_frame,
-            text="Цвет 1",
-            command=self.choose_cycle_color_1
-        ).grid(
-            row=0,
-            column=0,
-            padx=5,
-            pady=5
-        )
+        self.make_ui_button(row, "▶ Запустить", start_row).pack(side="left", padx=7)
+        self.make_ui_button(row, "■ Стоп", stop_row).pack(side="left", padx=2)
+        self.make_ui_button(row, "✕", remove_row).pack(side="right", padx=2)
+        row.colors = colors
 
-
-        self.cycle_color_1_label = tk.StringVar(
-            value="#FF0000"
-        )
-
-
-        ttk.Label(
-            cycle_frame,
-            textvariable=self.cycle_color_1_label
-        ).grid(
-            row=0,
-            column=1,
-            padx=5
-        )
-
-
-        ttk.Button(
-            cycle_frame,
-            text="Цвет 2",
-            command=self.choose_cycle_color_2
-        ).grid(
-            row=0,
-            column=2,
-            padx=5
-        )
-
-
-        self.cycle_color_2_label = tk.StringVar(
-            value="#0000FF"
-        )
-
-
-        ttk.Label(
-            cycle_frame,
-            textvariable=self.cycle_color_2_label
-        ).grid(
-            row=0,
-            column=3,
-            padx=5
-        )
-
-
-        ttk.Label(
-            cycle_frame,
-            text="Интервал:"
-        ).grid(
-            row=0,
-            column=4,
-            padx=(15, 3)
-        )
-
-
-        self.cycle_interval_var = tk.DoubleVar(
-            value=1.0
-        )
-
-
-        ttk.Spinbox(
-            cycle_frame,
-            from_=0.1,
-            to=60.0,
-            increment=0.1,
-            textvariable=self.cycle_interval_var,
-            width=7
-        ).grid(
-            row=0,
-            column=5,
-            padx=3
-        )
-
-
-        ttk.Label(
-            cycle_frame,
-            text="сек."
-        ).grid(
-            row=0,
-            column=6,
-            padx=3
-        )
-
-
-        self.cycle_button = ttk.Button(
-            cycle_frame,
-            text="▶ Запустить цикл",
-            command=self.toggle_selected_key_cycle
-        )
-
-
-        self.cycle_button.grid(
-            row=0,
-            column=7,
-            padx=8
-        )
-
-
-        # ----------------------------------------------------
-        # Log
-        # ----------------------------------------------------
-
-        self.log_box = tk.Text(
-            self.root,
-            height=8,
-            state="disabled"
-        )
-
-
-        self.log_box.pack(
-            fill="both",
-            expand=True,
-            padx=25,
-            pady=(5, 15)
-        )
-
-
-    # ========================================================
-    # VISUAL KEYBOARD
-    # ========================================================
-
-    def make_key(
-        self,
-        text,
-        index,
-        row,
-        column,
-        width=5,
-        colspan=1
-    ):
-
-        button = tk.Button(
-            self.keyboard_frame,
-            text=text,
-            width=width,
-            height=2,
-            relief="raised",
-            command=lambda: self.select_key(
-                text,
-                index
-            )
-        )
-
-
-        button.grid(
-            row=row,
-            column=column,
-            columnspan=colspan,
-            padx=2,
-            pady=2,
-            sticky="nsew"
-        )
-
-
-        self.keyboard_buttons[index] = button
-
-
+    # ---------------- Keyboard ----------------
     def build_keyboard(self):
-
-        # ----------------------------------------------------
-        # F-row
-        # ----------------------------------------------------
-
-        self.make_key(
-            "Esc",
-            0,
-            0,
-            0,
-            width=6
-        )
-
-
-        for i in range(1, 13):
-
-            self.make_key(
-                f"F{i}",
-                i,
-                0,
-                i,
-                width=4
-            )
-
-
-        # ----------------------------------------------------
-        # Number row
-        # ----------------------------------------------------
-
-        number_keys = [
-            ("Ё", 16),
-            ("1", 17),
-            ("2", 18),
-            ("3", 19),
-            ("4", 20),
-            ("5", 21),
-            ("6", 22),
-            ("7", 23),
-            ("8", 24),
-            ("9", 25),
-            ("0", 26),
-            ("-", 27),
-            ("=", 28),
-        ]
-
-
-        for col, (text, index) in enumerate(
-            number_keys
-        ):
-
-            self.make_key(
-                text,
-                index,
-                1,
-                col,
-                width=5
-            )
-
-
-        self.make_key(
-            "Backspace",
-            92,
-            1,
-            13,
-            width=11
-        )
-
-
-        # ----------------------------------------------------
-        # Q row
-        # ----------------------------------------------------
-
-        q_keys = [
-            ("Tab", 32),
-            ("Q", 33),
-            ("W", 34),
-            ("E", 35),
-            ("R", 36),
-            ("T", 37),
-            ("Y", 38),
-            ("U", 39),
-            ("I", 40),
-            ("O", 41),
-            ("P", 42),
-            ("[", 43),
-            ("]", 44),
-        ]
-
-
-        for col, (text, index) in enumerate(
-            q_keys
-        ):
-
-            self.make_key(
-                text,
-                index,
-                2,
-                col,
-                width=5
-            )
-
-
-        self.make_key(
-            "Enter",
-            76,
-            2,
-            13,
-            width=7
-        )
-
-
-        # ----------------------------------------------------
-        # A row
-        # ----------------------------------------------------
-
-        a_keys = [
-            ("Caps", 48),
-            ("A", 49),
-            ("S", 50),
-            ("D", 51),
-            ("F", 52),
-            ("G", 53),
-            ("H", 54),
-            ("J", 55),
-            ("K", 56),
-            ("L", 57),
-            (";", 58),
-            ("'", 59),
-            ("\\", 60),
-        ]
-
-
-        for col, (text, index) in enumerate(
-            a_keys
-        ):
-
-            self.make_key(
-                text,
-                index,
-                3,
-                col,
-                width=5
-            )
-
-
-        # ----------------------------------------------------
-        # Z row
-        # ----------------------------------------------------
-
-        z_keys = [
-            ("LShift", 64),
-            ("Z", 65),
-            ("X", 66),
-            ("C", 67),
-            ("V", 68),
-            ("B", 69),
-            ("N", 70),
-            ("M", 71),
-            (",", 72),
-            (".", 73),
-            ("/", 74),
-            ("RShift", 75),
-        ]
-
-
-        for col, (text, index) in enumerate(
-            z_keys
-        ):
-
-            self.make_key(
-                text,
-                index,
-                4,
-                col,
-                width=5
-            )
-
-
-        # ----------------------------------------------------
-        # Bottom row
-        # ----------------------------------------------------
-
-        bottom = [
-            ("LCtrl", 80),
-            ("Win", 81),
-            ("LAlt", 82),
-            ("Space", 83),
-            ("RAlt", 84),
-            ("Fn", 85),
-            ("RCtrl", 87),
-        ]
-
-
-        col = 0
-
-
-        for text, index in bottom:
-
-            width = 6
-
-            if text == "Space":
-                width = 28
-
-            self.make_key(
-                text,
-                index,
-                5,
-                col,
-                width=width
-            )
-
-            col += 1
-
-
-        # ----------------------------------------------------
-        # Navigation
-        # ----------------------------------------------------
-
-        self.make_key(
-            "Insert",
-            103,
-            6,
-            10,
-            width=7
-        )
-
-
-        self.make_key(
-            "Home",
-            104,
-            6,
-            11,
-            width=7
-        )
-
-
-        self.make_key(
-            "PgUp",
-            105,
-            6,
-            12,
-            width=7
-        )
-
-
-        self.make_key(
-            "Delete",
-            106,
-            7,
-            10,
-            width=7
-        )
-
-
-        self.make_key(
-            "End",
-            107,
-            7,
-            11,
-            width=7
-        )
-
-
-        self.make_key(
-            "PgDn",
-            108,
-            7,
-            12,
-            width=7
-        )
-
-
-        # ----------------------------------------------------
-        # Arrows
-        # ----------------------------------------------------
-
-        self.make_key(
-            "↑",
-            90,
-            7,
-            8,
-            width=5
-        )
-
-
-        self.make_key(
-            "←",
-            88,
-            8,
-            7,
-            width=5
-        )
-
-
-        self.make_key(
-            "↓",
-            89,
-            8,
-            8,
-            width=5
-        )
-
-
-        self.make_key(
-            "→",
-            91,
-            8,
-            9,
-            width=5
-        )
-
-
-    # ========================================================
-    # KEY SELECTION
-    # ========================================================
-
-    def select_key(
-        self,
-        name,
-        index
-    ):
-
-        # Убираем выделение с предыдущей клавиши.
-
-        if (
-            self.selected_key_index is not None
-            and
-            self.selected_key_index
-            in self.keyboard_buttons
-        ):
-
-            old_button = self.keyboard_buttons[
-                self.selected_key_index
-            ]
-
-            old_button.config(
-                relief="raised",
-                bd=2
-            )
-
-
+        for row in KEY_LAYOUT:
+            for text, index, col, colspan, rowspan in row:
+                if not text or index is None:
+                    continue
+                self.make_key(text, index, row=KEY_LAYOUT.index(row), column=col, colspan=colspan, rowspan=rowspan)
+        for c in range(18):
+            self.keyboard_frame.grid_columnconfigure(c, weight=1)
+
+    def make_key(self, text, index, row, column, colspan=1, rowspan=1):
+        b = tk.Button(self.keyboard_frame, text=text, width=5, height=2, font=("Segoe UI", 9, "bold"),
+                      relief="raised", bd=2, command=lambda: self.select_key(text, index))
+        b.grid(row=row, column=column, columnspan=colspan, rowspan=rowspan, padx=2, pady=2, sticky="nsew")
+        self.keyboard_buttons[index] = b
+
+    def select_key(self, name, index):
         self.selected_key_name = name
         self.selected_key_index = index
+        self.selected_label.set(f"Выбрано: {name}  •  LED index {index}")
+        self.refresh_key_buttons()
 
+    def refresh_key_buttons(self):
+        for idx, b in self.keyboard_buttons.items():
+            b.configure(bg=KEY_SELECTED if idx == self.selected_key_index else KEY_BG,
+                        fg="#FFFFFF", activebackground=KEY_SELECTED if idx == self.selected_key_index else KEY_BG,
+                        activeforeground="#FFFFFF")
 
-        # Выделяем новую.
-
-        button = self.keyboard_buttons[
-            index
-        ]
-
-        button.config(
-            relief="sunken",
-            bd=4
-        )
-
-
-        self.selected_label.set(
-            f"Выбрано: {name}   "
-            f"LED index: {index}   "
-            f"0x{index:02X}"
-        )
-
-
-        r, g, b = self.per_key_colors[
-            index
-        ]
-
-
-        self.log(
-            f"Выбрана {name}: "
-            f"LED {index} "
-            f"(0x{index:02X}), "
-            f"цвет #{r:02X}{g:02X}{b:02X}"
-        )
-
-
-    # ========================================================
-    # LOG
-    # ========================================================
-
-    def log(
-        self,
-        text
-    ):
-
-        self.log_box.config(
-            state="normal"
-        )
-
-        self.log_box.insert(
-            "end",
-            text + "\n"
-        )
-
-        self.log_box.see(
-            "end"
-        )
-
-        self.log_box.config(
-            state="disabled"
-        )
-
-
-    # ========================================================
-    # DEVICE
-    # ========================================================
-
+    # ---------------- Device ----------------
     def find_device(self):
-
-        devices = hid.enumerate(
-            VID,
-            PID
-        )
-
-
-        for d in devices:
-
-            if (
-                d.get("interface_number")
-                == INTERFACE
-
-                and
-
-                d.get("usage_page")
-                == USAGE_PAGE
-
-                and
-
-                d.get("usage")
-                == USAGE
-            ):
-
+        for d in hid.enumerate(VID, PID):
+            if d.get("interface_number") == INTERFACE and d.get("usage_page") == USAGE_PAGE and d.get("usage") == USAGE:
                 return d
-
-
         return None
 
-
     def scan(self):
-
-        self.log(
-            "Поиск Type 84..."
-        )
-
-
+        self.log("Поиск Type 84...")
         info = self.find_device()
-
-
         if not info:
-
-            self.status.set(
-                "❌ Type 84 не найдена"
-            )
-
-            self.log(
-                "MI_02 не найден."
-            )
-
+            self.status.set("❌ Type 84 не найдена")
+            self.log("MI_02 не найден.")
             return
-
-
         self.device_info = info
-
-
-        self.status.set(
-            "✅ Type 84 найдена"
-        )
-
-
-        self.log("")
-        self.log(
-            "=== DEVICE ==="
-        )
-
-        self.log(
-            "Product: "
-            + str(
-                info.get(
-                    "product_string"
-                )
-            )
-        )
-
-        self.log(
-            "VID: 0x0C45"
-        )
-
-        self.log(
-            "PID: 0x8009"
-        )
-
-        self.log(
-            "Interface: 2"
-        )
-
-        self.log(
-            "Usage Page: 0xFF68"
-        )
-
-        self.log(
-            "Usage: 0x61"
-        )
-
-        self.log(
-            "Path: "
-            + str(
-                info.get("path")
-            )
-        )
-
+        self.status.set("✅ Type 84 найдена")
+        self.log(f"Product: {info.get('product_string')}")
+        self.log("VID: 0x0C45  PID: 0x8009  Interface: 2  Usage: 0x61")
+        self.log(f"Path: {info.get('path')}")
 
     def connect(self):
-
         if not self.device_info:
-
-            self.device_info = (
-                self.find_device()
-            )
-
-
+            self.device_info = self.find_device()
         if not self.device_info:
-
-            messagebox.showerror(
-                "Ошибка",
-                "Сначала нажми «Найти клавиатуру»."
-            )
-
+            messagebox.showerror("Ошибка", "Сначала найди клавиатуру.")
             return
-
-
         try:
-
             if self.device:
-
                 self.device.close()
-
-
             self.device = hid.device()
-
-
-            self.device.open_path(
-                self.device_info["path"]
-            )
-
-
-            self.status.set(
-                "🟢 MI_02 подключён"
-            )
-
-
-            self.log("")
-            self.log(
-                "=== CONNECTED ==="
-            )
-
-
-            try:
-
-                self.log(
-                    "Manufacturer: "
-                    + str(
-                        self.device.get_manufacturer_string()
-                    )
-                )
-
-                self.log(
-                    "Product: "
-                    + str(
-                        self.device.get_product_string()
-                    )
-                )
-
-            except Exception:
-
-                pass
-
-
+            self.device.open_path(self.device_info["path"])
+            self.status.set("🟢 MI_02 подключён")
+            self.log("=== CONNECTED ===")
+            self.log("RGB-команды доступны.")
         except Exception as e:
-
             self.device = None
+            self.status.set("❌ Ошибка подключения")
+            self.log("Ошибка: " + repr(e))
 
-
-            self.status.set(
-                "❌ Ошибка подключения"
-            )
-
-
-            self.log(
-                "Ошибка: "
-                + repr(e)
-            )
-
-
-    # ========================================================
-    # HID SEND
-    # ========================================================
-
-    def send(
-        self,
-        packet,
-        delay=True
-    ):
-
+    # ---------------- HID protocol ----------------
+    def send(self, packet, log=True):
         if not self.device:
-
-            messagebox.showwarning(
-                "Нет подключения",
-                "Сначала подключи MI_02."
-            )
-
+            messagebox.showwarning("Нет подключения", "Сначала подключи MI_02.")
             return False
-
-
         if len(packet) != REPORT_SIZE:
-
-            raise ValueError(
-                "HID report должен быть "
-                "ровно 64 байта"
-            )
-
-
-        # Для данного интерфейса hidapi
-        # перед payload добавляется report ID 0.
-
-        result = self.device.write(
-            [0] + packet
-        )
-
-
-        self.log(
-            "TX: "
-            + " ".join(
-                f"{x:02X}"
-                for x in packet
-            )
-        )
-
-
-        self.log(
-            "write() = "
-            + str(result)
-        )
-
-
-        if delay:
-
-            time.sleep(
-                PACKET_DELAY
-            )
-
-
+            raise ValueError("HID report должен быть 64 байта")
+        result = self.device.write([0] + list(packet))
+        if log:
+            self.log("TX: " + " ".join(f"{x:02X}" for x in packet))
+            self.log("write() = " + str(result))
+        time.sleep(PACKET_DELAY)
         return result >= 0
 
-
-    # ========================================================
-    # STATIC MODE
-    # ========================================================
-
-    def make_static(
-        self,
-        r,
-        g,
-        b
-    ):
-
-        packet = [
-            0
-        ] * REPORT_SIZE
-
-
-        # AA 23 10
-        packet[0] = 0xAA
-        packet[1] = 0x23
-        packet[2] = 0x10
-
-
-        # 00 00 00 01 00
-        packet[3] = 0x00
-        packet[4] = 0x00
-        packet[5] = 0x00
-        packet[6] = 0x01
-        packet[7] = 0x00
-
-
-        # 01 = static
-        packet[8] = 0x01
-
-
-        packet[9] = r
-        packet[10] = g
-        packet[11] = b
-        packet[12] = 0xFF
-
-
-        # 00 00 00 00 05
-        packet[13] = 0x00
-        packet[14] = 0x00
-        packet[15] = 0x00
-        packet[16] = 0x00
-        packet[17] = 0x05
-
-
-        packet[18] = 0x00
-        packet[19] = 0x00
-        packet[20] = 0x00
-
-
-        packet[21] = 0xAA
-        packet[22] = 0x55
-
-
+    def make_static(self, r, g, b, custom=False):
+        # Verified layout: AA 23 10 00 00 00 01 00 [01/80] R G B FF 00 00 00 00 05 ... AA 55
+        packet = [0] * 64
+        packet[0:8] = [0xAA, 0x23, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00]
+        packet[8] = 0x80 if custom else 0x01
+        packet[9:13] = [r, g, b, 0xFF]
+        packet[13:21] = [0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00]
+        packet[21:23] = [0xAA, 0x55]
         return packet
-
-
-    # ========================================================
-    # CUSTOM MODE
-    # ========================================================
-
-    def make_custom_mode(
-        self,
-        r=0xB6,
-        g=0x4C,
-        b=0xFD
-    ):
-
-        packet = [
-            0
-        ] * REPORT_SIZE
-
-
-        # AA 23 10
-        packet[0] = 0xAA
-        packet[1] = 0x23
-        packet[2] = 0x10
-
-
-        # 00 00 00 01 00
-        packet[3] = 0x00
-        packet[4] = 0x00
-        packet[5] = 0x00
-        packet[6] = 0x01
-        packet[7] = 0x00
-
-
-        # 80 = пользовательский режим
-        packet[8] = 0x80
-
-
-        packet[9] = r
-        packet[10] = g
-        packet[11] = b
-        packet[12] = 0xFF
-
-
-        # 00 00 00 00 05
-        packet[13] = 0x00
-        packet[14] = 0x00
-        packet[15] = 0x00
-        packet[16] = 0x00
-        packet[17] = 0x05
-
-
-        packet[18] = 0x00
-        packet[19] = 0x00
-        packet[20] = 0x00
-
-
-        packet[21] = 0xAA
-        packet[22] = 0x55
-
-
-        return packet
-
 
     def set_custom_mode(self):
-
-        try:
-
-            packet = self.make_custom_mode(
-                *self.background
-            )
-
-
-            if self.send(packet):
-
-                self.status.set(
-                    "🟢 Пользовательский режим включён"
-                )
-
-                self.log(
-                    "Custom mode = 0x80"
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "CUSTOM MODE ERROR: "
-                + repr(e)
-            )
-
-            messagebox.showerror(
-                "Ошибка",
-                repr(e)
-            )
-
-
-    # ========================================================
-    # WHOLE KEYBOARD COLOR
-    # ========================================================
-
-    def set_static(
-        self,
-        r,
-        g,
-        b
-    ):
-
-        self.background = (
-            r,
-            g,
-            b
-        )
-
-
-        try:
-
-            packet = self.make_static(
-                r,
-                g,
-                b
-            )
-
-
-            if self.send(packet):
-
-                self.status.set(
-                    f"🟢 RGB: "
-                    f"#{r:02X}{g:02X}{b:02X}"
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "RGB ERROR: "
-                + repr(e)
-            )
-
-
-            messagebox.showerror(
-                "RGB ошибка",
-                repr(e)
-            )
-
+        if self.send(self.make_static(*self.background, custom=True)):
+            self.custom_mode_active = True
+            self.status.set("👤 Пользовательский режим включён")
 
     def choose_background(self):
-
-        color = colorchooser.askcolor(
-            title="Цвет всей клавиатуры"
-        )
-
-
-        if not color or not color[0]:
-
-            return
-
-
-        r, g, b = map(
-            int,
-            color[0]
-        )
-
-
-        self.set_static(
-            r,
-            g,
-            b
-        )
-
-
-    # ========================================================
-    # KEY COLOR
-    # ========================================================
+        result = colorchooser.askcolor(initialcolor=rgb_hex(self.background), title="Цвет всей клавиатуры")
+        if result and result[0]:
+            self.background = tuple(map(int, result[0]))
+            if self.send(self.make_static(*self.background)):
+                self.custom_mode_active = False
+                self.status.set(f"🟢 RGB отправлен: {rgb_hex(self.background)}")
 
     def choose_key_color(self):
-
-        color = colorchooser.askcolor(
-            title="Цвет выбранной клавиши"
-        )
-
-
-        if not color or not color[0]:
-
+        if self.selected_key_index is None:
+            messagebox.showwarning("Клавиша", "Сначала выбери клавишу на виртуальной клавиатуре.")
             return
+        result = colorchooser.askcolor(initialcolor=rgb_hex(self.key_color), title="Цвет клавиши")
+        if result and result[0]:
+            self.key_color = tuple(map(int, result[0]))
+            self.send_selected_key()
 
-
-        self.key_color = tuple(
-            map(
-                int,
-                color[0]
-            )
-        )
-
-
-        r, g, b = self.key_color
-
-
-        self.log(
-            "Цвет выбранной клавиши: "
-            f"#{r:02X}{g:02X}{b:02X}"
-        )
-
-
-    # ========================================================
-    # MAKE PER-KEY PACKETS
-    # ========================================================
-
-    def make_per_key_packets(self):
-
+    def make_per_key_packets(self, colors):
+        # Protocol observed in Wireshark: AA 24 38 + byte offset (little-endian) + 00 00 00,
+        # then 14 records of [LED index, R, G, B]. Final packet is AA 24 08 F8 01 00 01 00.
         packets = []
-
-
-        # 128 LED.
-        #
-        # В каждом обычном пакете 14 записей.
-        #
-        # 9 * 14 = 126
-        # последний пакет содержит 126 и 127.
-        #
-
-        for packet_number in range(10):
-
-            packet = [
-                0
-            ] * REPORT_SIZE
-
-
-            start_index = (
-                packet_number * 14
-            )
-
-
-            offset = (
-                start_index * 4
-            )
-
-
-            # ------------------------------------------------
-            # Header
-            # ------------------------------------------------
-
-            packet[0] = 0xAA
-            packet[1] = 0x24
-
-
-            if packet_number == 9:
-
-                # Последний пакет:
-                # AA 24 08 ...
-
-                packet[2] = 0x08
-
-            else:
-
-                # Остальные:
-                # AA 24 38 ...
-
-                packet[2] = 0x38
-
-
-            # offset
-            packet[3] = (
-                offset & 0xFF
-            )
-
-            packet[4] = (
-                (offset >> 8)
-                & 0xFF
-            )
-
-
-            packet[5] = 0x00
-
-
-            # Только последний пакет имеет 01.
-            packet[6] = (
-                0x01
-                if packet_number == 9
-                else 0x00
-            )
-
-
-            packet[7] = 0x00
-
-
-            # ------------------------------------------------
-            # 14 LED records
-            # ------------------------------------------------
-
-            for slot in range(14):
-
-                index = (
-                    start_index
-                    + slot
-                )
-
-
-                if index >= LED_COUNT:
-
-                    break
-
-
-                pos = (
-                    8
-                    + slot * 4
-                )
-
-
-                r, g, b = (
-                    self.per_key_colors[
-                        index
-                    ]
-                )
-
-
-                # index
-                packet[pos] = index
-
-
-                # RGB
-                packet[pos + 1] = r
-                packet[pos + 2] = g
-                packet[pos + 3] = b
-
-
-            packets.append(
-                packet
-            )
-
-
+        for start in range(0, LED_COUNT, 14):
+            chunk = colors[start:start + 14]
+            packet = [0] * 64
+            offset = start * 4
+            packet[0:8] = [0xAA, 0x24, 0x38, offset & 0xFF, (offset >> 8) & 0xFF, 0x00, 0x00, 0x00]
+            pos = 8
+            for i, color in enumerate(chunk, start=start):
+                r, g, b = clamp_color(color)
+                packet[pos:pos + 4] = [i & 0xFF, r, g, b]
+                pos += 4
+            packets.append(packet)
+        final = [0] * 64
+        final[0:8] = [0xAA, 0x24, 0x08, 0xF8, 0x01, 0x00, 0x01, 0x00]
+        # The last report carries LED 126 and 127, exactly like the captured report.
+        final[8:12] = [126, *clamp_color(colors[126])]
+        final[12:16] = [127, *clamp_color(colors[127])]
+        packets.append(final)
         return packets
 
-
-    # ========================================================
-    # SEND ALL PER-KEY PACKETS
-    # ========================================================
-
-    def send_all_per_key_packets(self):
-
-        packets = (
-            self.make_per_key_packets()
-        )
-
-
-        for number, packet in enumerate(
-            packets,
-            start=1
-        ):
-
-            if not self.send(
-                packet,
-                delay=True
-            ):
-
-                return False
-
-
-            self.log(
-                f"Per-Key packet "
-                f"{number}/10 отправлен"
-            )
-
-
+    def send_per_key_state(self):
+        if not self.device:
+            messagebox.showwarning("Нет подключения", "Сначала подключи MI_02.")
+            return False
+        with self.per_key_send_lock:
+            if not self.custom_mode_active:
+                if not self.send(self.make_static(*self.background, custom=True), log=False):
+                    return False
+                self.custom_mode_active = True
+            for packet in self.make_per_key_packets(self.per_key_colors):
+                if not self.send(packet, log=False):
+                    return False
+        self.log("Per-Key state отправлен: 10 data-пакетов + final packet.")
         return True
 
-
-    # ========================================================
-    # SEND SELECTED KEY
-    # ========================================================
-
     def send_selected_key(self):
-
         if self.selected_key_index is None:
-
-            messagebox.showwarning(
-                "Клавиша не выбрана",
-                "Сначала нажми на клавишу "
-                "на панели."
-            )
-
+            messagebox.showwarning("Клавиша", "Сначала выбери клавишу.")
             return
-
-
-        index = (
-            self.selected_key_index
-        )
-
-
-        r, g, b = (
-            self.key_color
-        )
-
-
-        # ----------------------------------------------------
-        # Сохраняем цвет.
-        #
-        # Это ключевой момент:
-        # остальные LED НЕ обнуляются.
-        # ----------------------------------------------------
-
-        self.per_key_colors[index] = (
-            r,
-            g,
-            b
-        )
-
-
-        self.log(
-            f"LED {index} "
-            f"({self.selected_key_name}) "
-            f"= #{r:02X}{g:02X}{b:02X}"
-        )
-
-
-        try:
-
-            # Перед изменением отдельных клавиш
-            # пользовательский режим должен быть включён.
-
-            if not self.send_all_per_key_packets():
-
-                self.status.set(
-                    "❌ Ошибка Per-Key"
-                )
-
-                return
-
-
-            self.status.set(
-                f"🟢 {self.selected_key_name}: "
-                f"#{r:02X}{g:02X}{b:02X}"
-            )
-
-
-        except Exception as e:
-
-            self.log(
-                "PER-KEY ERROR: "
-                + repr(e)
-            )
-
-
-            messagebox.showerror(
-                "Per-Key ошибка",
-                repr(e)
-            )
-
-
-    # ========================================================
-    # DISABLE SELECTED
-    # ========================================================
+        self.per_key_colors[self.selected_key_index] = self.key_color
+        self.send_per_key_state()
 
     def disable_selected_key(self):
-
         if self.selected_key_index is None:
-
-            messagebox.showwarning(
-                "Клавиша не выбрана",
-                "Сначала выбери клавишу."
-            )
-
+            messagebox.showwarning("Клавиша", "Сначала выбери клавишу.")
             return
-
-
-        index = (
-            self.selected_key_index
-        )
-
-
-        # RGB 0 = выключено.
-        self.per_key_colors[index] = (
-            0,
-            0,
-            0
-        )
-
-
-        self.log(
-            f"LED {index} "
-            f"({self.selected_key_name}) "
-            f"выключен"
-        )
-
-
-        try:
-
-            if self.send_all_per_key_packets():
-
-                self.status.set(
-                    f"⬛ {self.selected_key_name} выключена"
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "DISABLE ERROR: "
-                + repr(e)
-            )
-
-
-    # ========================================================
-    # DISABLE ALL
-    # ========================================================
+        self.per_key_colors[self.selected_key_index] = (0, 0, 0)
+        self.send_per_key_state()
 
     def disable_all_keys(self):
+        self.per_key_colors = [(0, 0, 0) for _ in range(LED_COUNT)]
+        self.send_per_key_state()
 
-        for i in range(
-            LED_COUNT
-        ):
-
-            self.per_key_colors[i] = (
-                0,
-                0,
-                0
-            )
-
-
-        try:
-
-            if self.send_all_per_key_packets():
-
-                self.status.set(
-                    "⬛ Все LED выключены"
-                )
-
-
-        except Exception as e:
-
-            self.log(
-                "DISABLE ALL ERROR: "
-                + repr(e)
-            )
-
-
-    # ========================================================
-    # CYCLE COLOR PICKERS
-    # ========================================================
-
-    def choose_cycle_color_1(self):
-
-        color = colorchooser.askcolor(
-            title="Первый цвет цикла"
-        )
-
-
-        if not color or not color[0]:
-
-            return
-
-
-        self.key_cycle_color_1 = tuple(
-            map(
-                int,
-                color[0]
-            )
-        )
-
-
-        r, g, b = (
-            self.key_cycle_color_1
-        )
-
-
-        self.cycle_color_1_label.set(
-            f"#{r:02X}{g:02X}{b:02X}"
-        )
-
-
-    def choose_cycle_color_2(self):
-
-        color = colorchooser.askcolor(
-            title="Второй цвет цикла"
-        )
-
-
-        if not color or not color[0]:
-
-            return
-
-
-        self.key_cycle_color_2 = tuple(
-            map(
-                int,
-                color[0]
-            )
-        )
-
-
-        r, g, b = (
-            self.key_cycle_color_2
-        )
-
-
-        self.cycle_color_2_label.set(
-            f"#{r:02X}{g:02X}{b:02X}"
-        )
-
-
-    # ========================================================
-    # SELECTED KEY CYCLE
-    # ========================================================
-
-    def toggle_selected_key_cycle(self):
-
-        if self.selected_key_index is None:
-
-            messagebox.showwarning(
-                "Клавиша не выбрана",
-                "Сначала выбери клавишу."
-            )
-
-            return
-
-
-        if self.key_cycle_running:
-
-            self.key_cycle_running = False
-
-            self.cycle_button.config(
-                text="▶ Запустить цикл"
-            )
-
-
-            self.status.set(
-                "⏹ Цикл клавиши остановлен"
-            )
-
-
-            return
-
-
-        try:
-
-            interval = float(
-                self.cycle_interval_var.get()
-            )
-
-        except Exception:
-
-            messagebox.showerror(
-                "Ошибка",
-                "Интервал должен быть числом."
-            )
-
-            return
-
-
-        if interval < 0.1:
-
-            messagebox.showerror(
-                "Ошибка",
-                "Минимальный интервал: 0.1 сек."
-            )
-
-            return
-
-
-        self.key_cycle_running = True
-
-
-        self.cycle_button.config(
-            text="⏹ Остановить цикл"
-        )
-
-
-        self.status.set(
-            f"🌈 Цикл: "
-            f"{self.selected_key_name}"
-        )
-
-
-        self.key_cycle_thread_obj = (
-            threading.Thread(
-                target=self.selected_key_cycle_thread,
-                args=(interval,),
-                daemon=True
-            )
-        )
-
-
-        self.key_cycle_thread_obj.start()
-
-
-    def selected_key_cycle_thread(
-        self,
-        interval
-    ):
-
-        color_index = 0
-
-
-        while self.key_cycle_running:
-
-            # ------------------------------------------------
-            # Очень важно:
-            # фиксируем выбранную клавишу в начале итерации.
-            # ------------------------------------------------
-
-            index = (
-                self.selected_key_index
-            )
-
-
-            if index is None:
-
-                break
-
-
-            if color_index == 0:
-
-                color = (
-                    self.key_cycle_color_1
-                )
-
-            else:
-
-                color = (
-                    self.key_cycle_color_2
-                )
-
-
-            r, g, b = color
-
-
-            # Сохраняем только эту клавишу.
-            #
-            # Остальные значения уже находятся
-            # в self.per_key_colors.
-
-            self.per_key_colors[index] = (
-                r,
-                g,
-                b
-            )
-
-
-            try:
-
-                packets = (
-                    self.make_per_key_packets()
-                )
-
-
-                for packet in packets:
-
-                    if not self.key_cycle_running:
-
-                        break
-
-
-                    if not self.device:
-
-                        self.key_cycle_running = False
-
-                        break
-
-
-                    result = (
-                        self.device.write(
-                            [0] + packet
-                        )
-                    )
-
-
-                    if result < 0:
-
-                        self.log(
-                            "Cycle write error"
-                        )
-
-                        self.key_cycle_running = False
-
-                        break
-
-
-                    time.sleep(
-                        PACKET_DELAY
-                    )
-
-
-            except Exception as e:
-
-                self.log(
-                    "KEY CYCLE ERROR: "
-                    + repr(e)
-                )
-
-
-                self.key_cycle_running = False
-
-                break
-
-
-            color_index = (
-                1 - color_index
-            )
-
-
-            # Интервал между сменами цветов.
-            #
-            # Здесь не используем time.sleep(interval)
-            # одним большим куском, чтобы остановка
-            # цикла реагировала быстрее.
-
-            elapsed = 0.0
-
-
-            while (
-                elapsed < interval
-                and
-                self.key_cycle_running
-            ):
-
-                time.sleep(
-                    0.05
-                )
-
-                elapsed += 0.05
-
-
-        # Tkinter должен изменяться из главного потока.
-        self.root.after(
-            0,
-            lambda: self.cycle_button.config(
-                text="▶ Запустить цикл"
-            )
-        )
-
-
-    # ========================================================
-    # WHOLE KEYBOARD CYCLE
-    # ========================================================
-
+    # ---------------- Whole keyboard cycle ----------------
     def toggle_cycle(self):
-
         if self.running:
-
             self.running = False
-
-            self.status.set(
-                "⏹ Цикл остановлен"
-            )
-
+            self.status.set("⏹ Цикл остановлен")
             return
-
-
         self.running = True
-
-        self.status.set(
-            "🌈 Цикл всей клавиатуры"
-        )
-
-
-        threading.Thread(
-            target=self.cycle_thread,
-            daemon=True
-        ).start()
-
+        self.status.set("🌈 Цикл запущен")
+        threading.Thread(target=self.cycle_thread, daemon=True).start()
 
     def cycle_thread(self):
-
-        # Это старый цикл всей клавиатуры.
-        #
-        # Он оставлен отдельно от нового Per-Key цикла.
-
-        colors = [
-            (255, 0, 0),
-            (255, 80, 0),
-            (255, 255, 0),
-            (0, 255, 0),
-            (0, 255, 255),
-            (0, 80, 255),
-            (120, 0, 255),
-            (255, 0, 255),
-        ]
-
-
+        colors = [(255, 0, 0), (255, 80, 0), (255, 255, 0), (0, 255, 0),
+                  (0, 255, 255), (0, 80, 255), (120, 0, 255), (255, 0, 255)]
         while self.running:
-
-            for r, g, b in colors:
-
+            for color in colors:
                 if not self.running:
-
                     break
-
-
                 try:
-
-                    packet = self.make_static(
-                        r,
-                        g,
-                        b
-                    )
-
-
-                    if self.device:
-
-                        self.device.write(
-                            [0] + packet
-                        )
-
-
-                    self.background = (
-                        r,
-                        g,
-                        b
-                    )
-
-
+                    self.send(self.make_static(*color), log=False)
                 except Exception as e:
-
-                    self.log(
-                        "Cycle error: "
-                        + repr(e)
-                    )
-
-
+                    self.log("Cycle error: " + repr(e))
                     self.running = False
-
                     break
+                time.sleep(1.0)
 
+    # ---------------- Per-key cycles ----------------
+    def start_cycle_for_config(self, key_name, colors, interval):
+        if key_name not in KEY_INDEX:
+            messagebox.showwarning("Клавиша", "Выбрана неизвестная клавиша.")
+            return None
+        idx = KEY_INDEX[key_name]
+        cycle_colors = [tuple(c) for c in colors[:5]]
+        interval = max(0.1, float(interval))
+        self.cycle_job_counter += 1
+        job_id = self.cycle_job_counter
+        stop_event = threading.Event()
+        self.cycle_jobs[job_id] = stop_event
+        self.status.set(f"🌈 Цикл добавлен: {key_name} (LED {idx})")
+        thread = threading.Thread(target=self.key_cycle_worker,
+                                  args=(job_id, idx, cycle_colors, interval, stop_event), daemon=True)
+        thread.start()
+        return job_id
 
-                time.sleep(
-                    1.0
-                )
-
-
-    # ========================================================
-    # CLOSE
-    # ========================================================
-
-    def close(self):
-
-        self.running = False
-
-        self.key_cycle_running = False
-
-
+    def key_cycle_worker(self, job_id, idx, colors, interval, stop_event):
+        n = 0
         try:
+            while not stop_event.is_set():
+                self.per_key_colors[idx] = colors[n % len(colors)]
+                self.send_per_key_state()
+                n += 1
+                stop_event.wait(interval)
+        except Exception as e:
+            self.log("Per-key cycle error: " + repr(e))
+        finally:
+            self.cycle_jobs.pop(job_id, None)
 
-            if self.device:
+    def stop_cycle_job(self, job_id):
+        event = self.cycle_jobs.get(job_id)
+        if event:
+            event.set()
 
-                self.device.close()
+    def stop_key_cycle(self):
+        for event in list(self.cycle_jobs.values()):
+            event.set()
+        self.cycle_jobs.clear()
+        self.key_cycle_running = False
+        self.status.set("⏹ Циклы клавиш остановлены")
 
-        except Exception:
+    # ---------------- Theme ----------------
+    def toggle_theme(self):
+        self.dark_mode = not self.dark_mode
+        self.apply_theme()
 
+    def apply_theme(self):
+        bg = DARK_BG if self.dark_mode else LIGHT_BG
+        button = DARK_BUTTON if self.dark_mode else LIGHT_BUTTON
+        fg = TEXT_DARK if self.dark_mode else TEXT_LIGHT
+        self.root.configure(bg=bg)
+        for widget in self.root.winfo_children():
+            self.style_widget_tree(widget, bg, button, fg)
+        self.theme_button.configure(text="☀ Светлая тема" if self.dark_mode else "☾ Тёмная тема", bg=button, fg=fg)
+        self.keyboard_frame.configure(bg=bg)
+        self.refresh_key_buttons()
+
+    def style_widget_tree(self, widget, bg, button, fg):
+        try:
+            cls = widget.winfo_class()
+            if cls in ("Frame", "Labelframe"):
+                widget.configure(bg=bg)
+            elif cls == "Label":
+                widget.configure(bg=bg, fg=fg)
+            elif cls == "Text":
+                widget.configure(bg=button, fg=fg, insertbackground=fg)
+            elif cls == "Button":
+                if widget is not self.theme_button and widget in self.keyboard_buttons.values():
+                    return
+                widget.configure(bg=button, fg=fg, activebackground=button, activeforeground=fg)
+        except tk.TclError:
+            pass
+        for child in widget.winfo_children():
+            self.style_widget_tree(child, bg, button, fg)
+
+    # ---------------- Logging / close ----------------
+    def log(self, text):
+        try:
+            self.log_box.configure(state="normal")
+            self.log_box.insert("end", text + "\n")
+            self.log_box.see("end")
+            self.log_box.configure(state="disabled")
+        except tk.TclError:
             pass
 
-
+    def close(self):
+        self.running = False
+        self.key_cycle_running = False
+        for event in list(self.cycle_jobs.values()):
+            event.set()
+        self.cycle_jobs.clear()
+        try:
+            if self.device:
+                self.device.close()
+        except Exception:
+            pass
         self.root.destroy()
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 def main():
-
     root = tk.Tk()
-
-    app = Type84RGB(
-        root
-    )
-
+    Type84RGB(root)
     root.mainloop()
 
 
 if __name__ == "__main__":
-
     main()
-
