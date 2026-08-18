@@ -5,6 +5,7 @@ import threading
 import time
 import json
 import os
+import sys
 
 VID = 0x0C45
 PID = 0x8009
@@ -14,7 +15,32 @@ USAGE = 0x61
 REPORT_SIZE = 64
 PACKET_DELAY = 0.020
 LED_COUNT = 128
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "type84_rgb_settings.json")
+
+
+def get_settings_path():
+    """
+    Путь к файлу настроек.
+
+    Важно: при запуске обычного .py скрипта используем папку рядом с файлом.
+    Но когда приложение собрано в .exe (например через PyInstaller, режим
+    --onefile), sys.executable/__file__ указывает на временную папку
+    распаковки, которая создаётся заново при КАЖДОМ запуске — из-за этого
+    настройки не сохранялись между запусками. Поэтому для собранного .exe
+    используем стабильную папку в %APPDATA%.
+    """
+    if getattr(sys, "frozen", False):
+        base_dir = os.getenv("APPDATA") or os.path.expanduser("~")
+        base_dir = os.path.join(base_dir, "Type84RGB")
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+    except Exception:
+        base_dir = os.path.expanduser("~")
+    return os.path.join(base_dir, "type84_rgb_settings.json")
+
+
+SETTINGS_FILE = get_settings_path()
 
 KEY_INDEX = {
     "Esc": 0, "F1": 1, "F2": 2, "F3": 3, "F4": 4, "F5": 5, "F6": 6,
@@ -107,13 +133,16 @@ class Type84RGB:
 
         self.device = None
         self.device_info = None
+
         self.background = (255, 0, 0)
         self.key_color = (255, 0, 0)
         self.brightness_level = 255
         self.per_key_colors = [(0, 0, 0) for _ in range(LED_COUNT)]
+
         self.selected_keys = set()
         self.selected_key_name = None
         self.selected_key_index = None
+
         self.custom_mode_active = False
         self.dark_mode = False
 
@@ -128,9 +157,11 @@ class Type84RGB:
         self.cycle_loop_var = tk.BooleanVar(value=False)
 
         self.keyboard_buttons = {}
+
         self.build_ui()
         self.load_settings()
         self.apply_theme()
+
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     # ---------------- UI ----------------
@@ -139,7 +170,7 @@ class Type84RGB:
         header.pack(fill="x", padx=18, pady=(12, 6))
         self.header = header
         tk.Label(header, text="Red Square IO Type 84 RGB", font=("Segoe UI", 18, "bold")).pack(side="left")
-        self.theme_button = tk.Button(header, text="☾ Тёмная тема", command=self.toggle_theme, relief="flat", padx=12, pady=5)
+        self.theme_button = tk.Button(header, text="☾ Тёмная тема", command=self.toggle_theme, relief="flat", padx=12, pady=5, cursor="hand2")
         self.theme_button.pack(side="right")
 
         self.status = tk.StringVar(value="Устройство не подключено")
@@ -151,6 +182,7 @@ class Type84RGB:
         self.device_frame = device
         self.make_ui_button(device, "1. Найти клавиатуру", self.scan).pack(side="left", fill="x", expand=True, padx=3)
         self.make_ui_button(device, "2. Подключить MI_02", self.connect).pack(side="left", fill="x", expand=True, padx=3)
+
         self.add_separator()
 
         tk.Label(self.root, text="ВСЯ КЛАВИАТУРА", font=("Segoe UI", 12, "bold")).pack()
@@ -165,6 +197,7 @@ class Type84RGB:
         )
         self.brightness_scale.pack(side="left", padx=2)
         self.make_ui_button(whole, "Применить", self.apply_brightness).pack(side="left", padx=4)
+
         self.add_separator()
 
         selection_bar = tk.Frame(self.root)
@@ -179,27 +212,32 @@ class Type84RGB:
         self.keyboard_frame = tk.Frame(keyboard_outer)
         self.keyboard_frame.pack()
         self.build_keyboard()
+
         self.add_separator()
 
+        # Этот блок теперь растягивается вместе с окном (fill="both", expand=True),
+        # чтобы блок "Переливающиеся клавиши" внутри него мог расти в высоту.
         self.user_mode_frame = tk.Frame(self.root, bd=1, relief="groove")
-        self.user_mode_frame.pack(fill="x", padx=20, pady=(4, 8))
+        self.user_mode_frame.pack(fill="both", expand=True, padx=20, pady=(4, 8))
         tk.Label(self.user_mode_frame, text="ПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ", font=("Segoe UI", 12, "bold")).pack(pady=(8, 2))
+
         self.per_key_tab = tk.Frame(self.user_mode_frame)
         self.per_key_tab.pack(fill="x", padx=8, pady=(0, 5))
         self.build_per_key_tab()
 
         self.cycle_sub_frame = tk.Frame(self.user_mode_frame, bd=1, relief="groove")
-        self.cycle_sub_frame.pack(fill="x", padx=8, pady=(4, 8))
+        self.cycle_sub_frame.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         tk.Label(self.cycle_sub_frame, text="ПЕРЕЛИВАЮЩИЕСЯ КЛАВИШИ", font=("Segoe UI", 11, "bold")).pack(pady=(7, 2))
+
         self.cycle_tab = tk.Frame(self.cycle_sub_frame)
-        self.cycle_tab.pack(fill="x", padx=5, pady=3)
+        self.cycle_tab.pack(fill="both", expand=True, padx=5, pady=3)
         self.build_cycle_tab()
 
     def add_separator(self):
         tk.Frame(self.root, height=1).pack(fill="x", padx=25, pady=8)
 
     def make_ui_button(self, parent, text, command):
-        return tk.Button(parent, text=text, command=command, relief="raised", bd=1, padx=8, pady=5)
+        return tk.Button(parent, text=text, command=command, relief="raised", bd=1, padx=8, pady=5, cursor="hand2")
 
     def build_per_key_tab(self):
         controls = tk.Frame(self.per_key_tab)
@@ -229,14 +267,47 @@ class Type84RGB:
         ).pack(side="left", padx=14)
         tk.Label(controls, text="Если цикличность выключена, после последней команды последовательность остановится.").pack(side="left", padx=4)
 
+        # fill="both", expand=True — блок со списком команд растягивается вместе с окном.
         self.cycle_canvas = tk.Canvas(self.cycle_tab, height=250, highlightthickness=0)
         self.cycle_scroll = ttk.Scrollbar(self.cycle_tab, orient="vertical", command=self.cycle_canvas.yview)
         self.cycle_inner = tk.Frame(self.cycle_canvas)
         self.cycle_inner.bind("<Configure>", lambda e: self.cycle_canvas.configure(scrollregion=self.cycle_canvas.bbox("all")))
-        self.cycle_canvas.create_window((0, 0), window=self.cycle_inner, anchor="nw")
+        self.cycle_canvas_window = self.cycle_canvas.create_window((0, 0), window=self.cycle_inner, anchor="nw")
+        # Ширина внутреннего фрейма подстраивается под ширину канваса, чтобы
+        # строки команд тоже растягивались по горизонтали вместе с окном.
+        self.cycle_canvas.bind(
+            "<Configure>",
+            lambda e: self.cycle_canvas.itemconfigure(self.cycle_canvas_window, width=e.width)
+        )
         self.cycle_canvas.configure(yscrollcommand=self.cycle_scroll.set)
         self.cycle_canvas.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(0, 8))
         self.cycle_scroll.pack(side="right", fill="y", padx=(0, 10), pady=(0, 8))
+
+        # Прокрутка колесом мыши в любой точке блока, а не только на скроллбаре.
+        self.enable_mousewheel_scroll(self.cycle_tab)
+
+    # ---------------- Mousewheel scrolling ----------------
+    def enable_mousewheel_scroll(self, widget):
+        """Рекурсивно навешивает обработчик колеса мыши на widget и всех
+        его текущих потомков, чтобы прокрутка cycle_canvas работала при
+        наведении курсора в любой точке блока."""
+        widget.bind("<MouseWheel>", self._on_cycle_mousewheel, add="+")
+        widget.bind("<Button-4>", self._on_cycle_mousewheel_up, add="+")
+        widget.bind("<Button-5>", self._on_cycle_mousewheel_down, add="+")
+        for child in widget.winfo_children():
+            self.enable_mousewheel_scroll(child)
+
+    def _on_cycle_mousewheel(self, event):
+        # Windows/macOS: event.delta кратен 120 (или является дробным на macOS).
+        self.cycle_canvas.yview_scroll(int(-1 * (event.delta / 120)) or (-1 if event.delta > 0 else 1), "units")
+
+    def _on_cycle_mousewheel_up(self, event):
+        # Linux
+        self.cycle_canvas.yview_scroll(-3, "units")
+
+    def _on_cycle_mousewheel_down(self, event):
+        # Linux
+        self.cycle_canvas.yview_scroll(3, "units")
 
     # ---------------- Keyboard selection ----------------
     def build_keyboard(self):
@@ -251,7 +322,7 @@ class Type84RGB:
     def make_key(self, text, index, row, column, colspan=1, rowspan=1):
         b = tk.Button(
             self.keyboard_frame, text=text, width=5, height=2, font=("Segoe UI", 9, "bold"),
-            relief="raised", bd=2, command=lambda: self.toggle_key_selection(text, index)
+            relief="raised", bd=2, cursor="hand2", command=lambda: self.toggle_key_selection(text, index)
         )
         b.grid(row=row, column=column, columnspan=colspan, rowspan=rowspan, padx=2, pady=2, sticky="nsew")
         self.keyboard_buttons[index] = b
@@ -328,7 +399,7 @@ class Type84RGB:
             self.device = hid.device()
             self.device.open_path(self.device_info["path"])
             self.status.set("🟢 MI_02 подключён")
-            # Restore the remembered visual state on connection.
+            # Восстанавливаем сохранённое визуальное состояние при подключении.
             if self.custom_mode_active:
                 self.send_per_key_state()
             else:
@@ -411,7 +482,9 @@ class Type84RGB:
                 self.per_key_colors[idx] = self.key_color
             self.custom_mode_active = True
             self.save_settings()
-            self.send_per_key_state()
+            # Отправляем только те клавиши, которые реально изменились —
+            # они меняют цвет одновременно, а не по очереди.
+            self.send_per_key_state(changed_indices=self.selected_keys)
 
     def choose_all_custom_color(self):
         result = colorchooser.askcolor(initialcolor=rgb_hex(self.key_color), title="Цвет всех клавиш в пользовательском режиме")
@@ -430,7 +503,7 @@ class Type84RGB:
             self.per_key_colors[idx] = (0, 0, 0)
         self.custom_mode_active = True
         self.save_settings()
-        self.send_per_key_state()
+        self.send_per_key_state(changed_indices=self.selected_keys)
 
     def disable_all_keys(self):
         self.per_key_colors = [(0, 0, 0) for _ in range(LED_COUNT)]
@@ -438,38 +511,60 @@ class Type84RGB:
         self.save_settings()
         self.send_per_key_state()
 
-    def make_per_key_packets(self, colors):
-        packets = []
-        for start in range(0, LED_COUNT, 14):
-            chunk = colors[start:start + 14]
-            packet = [0] * 64
-            offset = start * 4
-            packet[0:8] = [0xAA, 0x24, 0x38, offset & 0xFF, (offset >> 8) & 0xFF, 0x00, 0x00, 0x00]
-            pos = 8
-            for i, color in enumerate(chunk, start=start):
-                r, g, b = self.scale_rgb(clamp_color(color))
-                packet[pos:pos + 4] = [i & 0xFF, r, g, b]
-                pos += 4
-            packets.append(packet)
+    def make_chunk_packet(self, start):
+        """Пакет с цветами для 14 клавиш, начиная с индекса start."""
+        chunk = self.per_key_colors[start:start + 14]
+        packet = [0] * 64
+        offset = start * 4
+        packet[0:8] = [0xAA, 0x24, 0x38, offset & 0xFF, (offset >> 8) & 0xFF, 0x00, 0x00, 0x00]
+        pos = 8
+        for i, color in enumerate(chunk, start=start):
+            r, g, b = self.scale_rgb(clamp_color(color))
+            packet[pos:pos + 4] = [i & 0xFF, r, g, b]
+            pos += 4
+        return packet
+
+    def make_final_packet(self):
+        """Финальный пакет, фиксирующий состояние (всегда отправляется последним)."""
         final = [0] * 64
         final[0:8] = [0xAA, 0x24, 0x08, 0xF8, 0x01, 0x00, 0x01, 0x00]
-        final[8:12] = [126, *self.scale_rgb(clamp_color(colors[126]))]
-        final[12:16] = [127, *self.scale_rgb(clamp_color(colors[127]))]
-        packets.append(final)
-        return packets
+        final[8:12] = [126, *self.scale_rgb(clamp_color(self.per_key_colors[126]))]
+        final[12:16] = [127, *self.scale_rgb(clamp_color(self.per_key_colors[127]))]
+        return final
 
-    def send_per_key_state(self):
+    def send_per_key_state(self, changed_indices=None):
+        """
+        Отправляет текущее состояние self.per_key_colors на клавиатуру.
+
+        changed_indices — если указан, отправляются только те чанки по 14
+        клавиш, в которые попадают изменённые индексы (плюс обязательный
+        финальный пакет). Это сильно уменьшает число HID-пакетов, когда
+        меняется всего несколько клавиш, и делает смену цвета визуально
+        одновременной, а не "по очереди". Если None — отправляется полное
+        состояние всех 128 клавиш (используется при переключении режима,
+        смене яркости, "выбрать все" и т.п.).
+        """
         if not self.device:
             self.status.set("Пользовательский режим сохранён; клавиатура не подключена")
             return False
         with self.per_key_send_lock:
-            if not self.custom_mode_active:
+            force_full = not self.custom_mode_active
+            if force_full:
                 if not self.send(self.make_static(*self.background, custom=True), log=False):
                     return False
                 self.custom_mode_active = True
-            for packet in self.make_per_key_packets(self.per_key_colors):
-                if not self.send(packet, log=False):
+
+            if changed_indices is None or force_full:
+                starts = range(0, LED_COUNT, 14)
+            else:
+                starts = sorted({(idx // 14) * 14 for idx in changed_indices if 0 <= idx < LED_COUNT})
+
+            for start in starts:
+                if not self.send(self.make_chunk_packet(start), log=False):
                     return False
+
+            if not self.send(self.make_final_packet(), log=False):
+                return False
         return True
 
     # ---------------- Sequential cycle commands ----------------
@@ -499,6 +594,9 @@ class Type84RGB:
             self.build_cycle_command_row(number, command)
         self.cycle_inner.update_idletasks()
         self.cycle_canvas.configure(scrollregion=self.cycle_canvas.bbox("all"))
+        # Новые строки создаются динамически — навешиваем на них прокрутку колесом заново.
+        self.enable_mousewheel_scroll(self.cycle_inner)
+        self.refresh_cycle_color_buttons()
 
     def build_cycle_command_row(self, number, command):
         row = tk.Frame(self.cycle_inner, bd=1, relief="groove", padx=7, pady=5)
@@ -507,11 +605,12 @@ class Type84RGB:
 
         names = [name for name, idx in KEY_INDEX.items() if idx in command["keys"]]
         names_text = ", ".join(names[:7]) + (" …" if len(names) > 7 else "")
+
         tk.Label(row, text=f"№ {number}", width=5, font=("Segoe UI", 9, "bold")).pack(side="left")
         tk.Label(row, text=f"Клавиши: {names_text}", width=28, anchor="w").pack(side="left", padx=4)
 
         color = tuple(command.get("color", [255, 0, 0]))
-        color_button = tk.Button(row, text="Цвет", width=7, bg=rgb_hex(color), fg="#FFFFFF", activebackground=rgb_hex(color), command=lambda n=number - 1: self.change_cycle_command_color(n))
+        color_button = tk.Button(row, text="Цвет", width=7, bg=rgb_hex(color), fg="#FFFFFF", activebackground=rgb_hex(color), cursor="hand2", command=lambda n=number - 1: self.change_cycle_command_color(n))
         color_button._cycle_color_button = True
         color_button.pack(side="left", padx=5)
 
@@ -592,16 +691,18 @@ class Type84RGB:
                         if 0 <= idx < LED_COUNT:
                             self.per_key_colors[idx] = color
                     self.custom_mode_active = True
-                    if not self.send_per_key_state():
+                    # Все клавиши этой команды отправляются одним проходом
+                    # (минимум пакетов) — они меняют цвет в один момент.
+                    if not self.send_per_key_state(changed_indices=keys):
                         self.cycle_stop_event.set()
                         break
                     interval = max(0.01, float(command.get("interval", 1.0)))
-                    # The interval is explicitly the time until the next command.
+                    # Интервал — это явно время до следующей команды.
                     if self.cycle_stop_event.wait(interval):
                         break
                 if not self.cycle_loop_enabled:
                     break
-        except Exception as e:
+        except Exception:
             self.root.after(0, lambda: self.status.set("❌ Ошибка последовательности"))
         finally:
             self.cycle_running = False
@@ -624,6 +725,7 @@ class Type84RGB:
             self.style_widget_tree(widget, bg, button, fg)
         self.theme_button.configure(text="☀ Светлая тема" if self.dark_mode else "☾ Тёмная тема", bg=button, fg=fg)
         self.keyboard_frame.configure(bg=bg)
+        self.cycle_canvas.configure(bg=bg)
         self.refresh_key_buttons()
         self.refresh_cycle_color_buttons()
 
@@ -686,18 +788,23 @@ class Type84RGB:
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
             self.background = clamp_color(data.get("background", self.background))
             self.key_color = clamp_color(data.get("key_color", self.key_color))
             self.brightness_level = max(0, min(255, int(data.get("brightness", 255))))
             self.brightness_var.set(self.brightness_level)
+
             saved_colors = data.get("per_key_colors", [])
             if isinstance(saved_colors, list) and len(saved_colors) == LED_COUNT:
                 self.per_key_colors = [clamp_color(c) for c in saved_colors]
+
             self.selected_keys = {int(i) for i in data.get("selected_keys", []) if int(i) in KEY_INDEX.values()}
             self.custom_mode_active = bool(data.get("custom_mode_active", False))
             self.dark_mode = bool(data.get("dark_mode", False))
+
             self.cycle_loop_enabled = bool(data.get("cycle_loop_enabled", False))
             self.cycle_loop_var.set(self.cycle_loop_enabled)
+
             loaded_commands = []
             for command in data.get("cycle_commands", []):
                 keys = [int(i) for i in command.get("keys", []) if 0 <= int(i) < LED_COUNT]
@@ -707,13 +814,15 @@ class Type84RGB:
                 interval = max(0.01, float(command.get("interval", 1.0)))
                 loaded_commands.append({"keys": keys, "color": color, "interval": interval})
             self.cycle_commands = loaded_commands
+
             if self.selected_keys:
                 self.selected_key_index = next(iter(self.selected_keys))
                 self.selected_key_name = next((n for n, i in KEY_INDEX.items() if i == self.selected_key_index), None)
+
             self.update_selection_label()
             self.rebuild_cycle_rows()
         except Exception:
-            # A damaged settings file must never prevent the application from starting.
+            # Повреждённый файл настроек не должен мешать запуску приложения.
             self.cycle_commands = []
             self.selected_keys.clear()
             self.update_selection_label()
