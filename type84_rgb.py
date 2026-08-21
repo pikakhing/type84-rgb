@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, colorchooser
+from tkinter import ttk, messagebox, colorchooser, filedialog, filedialog
 import hid
 import threading
 import time
@@ -41,6 +41,7 @@ def get_settings_path():
 
 
 SETTINGS_FILE = get_settings_path()
+PROFILES_DIR = os.path.join(os.path.dirname(SETTINGS_FILE), "profiles")
 
 KEY_INDEX = {
     "Esc": 0, "F1": 1, "F2": 2, "F3": 3, "F4": 4, "F5": 5, "F6": 6,
@@ -62,35 +63,38 @@ KEY_INDEX = {
 UNIT_PX = 54          # шаг одной стандартной клавиши (1u) в пикселях
 GAP_PX = 5            # зазор между клавишами
 ROW_EXTRA_GAP_PX = 14  # доп. отступ между рядом F-клавиш и остальной клавиатурой
-KEYBOARD_COLS_U = 18.75   # общая ширина раскладки в юнитах (для размера фрейма)
+KEYBOARD_COLS_U = 17.6   # общая ширина раскладки в юнитах (для размера фрейма)
 KEYBOARD_ROWS = 6
 
-# Раскладка "как в реальности": для каждой клавиши задаётся ряд (0-5),
-# смещение по X в юнитах (1u = ширина обычной клавиши) и ширина в юнитах.
-# Это даёт настоящий постуступенчатый сдвиг рядов и разную ширину клавиш
-# (Tab, Caps, Enter, Shift, Backspace, Space и т.д.), как на физической клавиатуре.
+# Раскладка вымерена по пиксельным координатам подписей клавиш на референсной
+# картинке пользователя (числовой ряд принят за эталон 1u = 1 клавиша).
+# F-ряд: три небольших зазора по ~0.3u (после Esc, после F4, после F8) —
+# это даёт лёгкий сдвиг F-клавиш вправо от соответствующих цифр, как на
+# картинке, но не так сильно, как было раньше.
+# Nav-кластер (Home/End/Ins/PgUp/Del/PgDn/стрелки) сдвинут левее — раньше
+# он был вынесен слишком далеко вправо.
 KEYBOARD_LAYOUT = [
     # ---- ряд 0: Esc / F1-F12 / колесо громкости / Home,End ----
     ("Esc", 0, 0, 0.00, 1.0),
-    ("F1", 1, 0, 1.50, 1.0), ("F2", 2, 0, 2.50, 1.0), ("F3", 3, 0, 3.50, 1.0), ("F4", 4, 0, 4.50, 1.0),
-    ("F5", 5, 0, 6.00, 1.0), ("F6", 6, 0, 7.00, 1.0), ("F7", 7, 0, 8.00, 1.0), ("F8", 8, 0, 9.00, 1.0),
-    ("F9", 9, 0, 10.50, 1.0), ("F10", 10, 0, 11.50, 1.0), ("F11", 11, 0, 12.50, 1.0), ("F12", 12, 0, 13.50, 1.0),
-    ("VOL", None, 0, 15.15, 0.9),
-    ("Home", 104, 0, 16.75, 1.0), ("End", 107, 0, 17.75, 1.0),
+    ("F1", 1, 0, 1.30, 1.0), ("F2", 2, 0, 2.30, 1.0), ("F3", 3, 0, 3.30, 1.0), ("F4", 4, 0, 4.30, 1.0),
+    ("F5", 5, 0, 5.60, 1.0), ("F6", 6, 0, 6.60, 1.0), ("F7", 7, 0, 7.60, 1.0), ("F8", 8, 0, 8.60, 1.0),
+    ("F9", 9, 0, 9.90, 1.0), ("F10", 10, 0, 10.90, 1.0), ("F11", 11, 0, 11.90, 1.0), ("F12", 12, 0, 12.90, 1.0),
+    ("VOL", None, 0, 14.20, 0.9),
+    ("Home", 104, 0, 15.50, 1.0), ("End", 107, 0, 16.50, 1.0),
 
     # ---- ряд 1: цифровой ряд / Insert,PgUp ----
     ("Ё", 16, 1, 0.0, 1.0), ("1", 17, 1, 1.0, 1.0), ("2", 18, 1, 2.0, 1.0), ("3", 19, 1, 3.0, 1.0),
     ("4", 20, 1, 4.0, 1.0), ("5", 21, 1, 5.0, 1.0), ("6", 22, 1, 6.0, 1.0), ("7", 23, 1, 7.0, 1.0),
     ("8", 24, 1, 8.0, 1.0), ("9", 25, 1, 9.0, 1.0), ("0", 26, 1, 10.0, 1.0), ("-", 27, 1, 11.0, 1.0),
     ("=", 28, 1, 12.0, 1.0), ("Backspace", 92, 1, 13.0, 2.0),
-    ("Insert", 103, 1, 16.75, 1.0), ("PgUp", 105, 1, 17.75, 1.0),
+    ("Insert", 103, 1, 15.50, 1.0), ("PgUp", 105, 1, 16.50, 1.0),
 
     # ---- ряд 2: Tab-ряд / Delete,PgDn ----
     ("Tab", 32, 2, 0.0, 1.5), ("Q", 33, 2, 1.5, 1.0), ("W", 34, 2, 2.5, 1.0), ("E", 35, 2, 3.5, 1.0),
     ("R", 36, 2, 4.5, 1.0), ("T", 37, 2, 5.5, 1.0), ("Y", 38, 2, 6.5, 1.0), ("U", 39, 2, 7.5, 1.0),
     ("I", 40, 2, 8.5, 1.0), ("O", 41, 2, 9.5, 1.0), ("P", 42, 2, 10.5, 1.0), ("[", 43, 2, 11.5, 1.0),
     ("]", 44, 2, 12.5, 1.0), ("\\", 60, 2, 13.5, 1.5),
-    ("Delete", 106, 2, 16.75, 1.0), ("PgDn", 108, 2, 17.75, 1.0),
+    ("Delete", 106, 2, 15.50, 1.0), ("PgDn", 108, 2, 16.50, 1.0),
 
     # ---- ряд 3: Caps-ряд / Enter ----
     ("Caps", 48, 3, 0.0, 1.75), ("A", 49, 3, 1.75, 1.0), ("S", 50, 3, 2.75, 1.0), ("D", 51, 3, 3.75, 1.0),
@@ -102,13 +106,13 @@ KEYBOARD_LAYOUT = [
     ("LShift", 64, 4, 0.0, 2.25), ("Z", 65, 4, 2.25, 1.0), ("X", 66, 4, 3.25, 1.0), ("C", 67, 4, 4.25, 1.0),
     ("V", 68, 4, 5.25, 1.0), ("B", 69, 4, 6.25, 1.0), ("N", 70, 4, 7.25, 1.0), ("M", 71, 4, 8.25, 1.0),
     (",", 72, 4, 9.25, 1.0), (".", 73, 4, 10.25, 1.0), ("/", 74, 4, 11.25, 1.0), ("RShift", 75, 4, 12.25, 2.75),
-    ("Up", 90, 4, 16.75, 1.0),
+    ("Up", 90, 4, 15.50, 1.0),
 
     # ---- ряд 5: нижний ряд / стрелки ----
     ("LCtrl", 80, 5, 0.0, 1.25), ("Win", 81, 5, 1.25, 1.25), ("LAlt", 82, 5, 2.5, 1.25),
     ("Space", 83, 5, 3.75, 6.25), ("RAlt", 84, 5, 10.0, 1.25), ("Fn", 85, 5, 11.25, 1.0),
     ("RCtrl", 87, 5, 12.25, 1.25),
-    ("Left", 88, 5, 15.75, 1.0), ("Down", 89, 5, 16.75, 1.0), ("Right", 91, 5, 17.75, 1.0),
+    ("Left", 88, 5, 14.50, 1.0), ("Down", 89, 5, 15.50, 1.0), ("Right", 91, 5, 16.50, 1.0),
 ]
 
 LIGHT_BG = "#E7E4E8"
@@ -177,6 +181,11 @@ class Type84RGB:
         tk.Label(header, text="Red Square IO Type 84 RGB", font=("Segoe UI", 18, "bold")).pack(side="left")
         self.theme_button = tk.Button(header, text="☾ Тёмная тема", command=self.toggle_theme, relief="flat", padx=12, pady=5, cursor="hand2")
         self.theme_button.pack(side="right")
+        # Кнопки профилей — левее переключателя темы.
+        self.load_profile_button = tk.Button(header, text="📂 Загрузить", command=self.load_profile, relief="flat", padx=12, pady=5, cursor="hand2")
+        self.load_profile_button.pack(side="right", padx=(0, 8))
+        self.save_profile_button = tk.Button(header, text="💾 Сохранить", command=self.save_profile, relief="flat", padx=12, pady=5, cursor="hand2")
+        self.save_profile_button.pack(side="right", padx=(0, 4))
 
         self.status = tk.StringVar(value="Устройство не подключено")
         self.status_label = tk.Label(self.root, textvariable=self.status, font=("Segoe UI", 10))
@@ -356,13 +365,18 @@ class Type84RGB:
 
     def make_volume_indicator(self, row, xu, wu):
         """Просто декоративный серый кружок на месте колеса громкости —
-        не клавиша, не выбирается и не участвует в подсветке."""
+        не клавиша, не выбирается и не участвует в подсветке.
+
+        Фон канваса красится в цвет фона окна (а не в цвет клавиш), поэтому
+        видна только сама окружность, без квадратной подложки вокруг неё."""
         x, y, w, h = self.key_pixel_rect(row, xu, wu)
         size = min(w, h)
-        canvas = tk.Canvas(self.keyboard_frame, width=size, height=size, highlightthickness=0, bd=0, bg=KEY_BG)
-        pad = max(2, size // 9)
+        bg = DARK_BG if self.dark_mode else LIGHT_BG
+        canvas = tk.Canvas(self.keyboard_frame, width=size, height=size, highlightthickness=0, bd=0, bg=bg)
+        pad = max(1, size // 12)
         canvas.create_oval(pad, pad, size - pad, size - pad, fill="#9A97A0", outline="#C7C4CC", width=1)
         canvas.place(x=x + (w - size) // 2, y=y + (h - size) // 2)
+        self.volume_canvas = canvas
         return canvas
 
     def toggle_key_selection(self, name, index):
@@ -771,6 +785,8 @@ class Type84RGB:
         self.theme_button.configure(text="☀ Светлая тема" if self.dark_mode else "☾ Тёмная тема", bg=button, fg=fg)
         self.keyboard_frame.configure(bg=bg)
         self.cycle_canvas.configure(bg=bg)
+        if hasattr(self, "volume_canvas"):
+            self.volume_canvas.configure(bg=bg)
         self.refresh_key_buttons()
         self.refresh_cycle_color_buttons()
 
@@ -806,8 +822,8 @@ class Type84RGB:
                     child.configure(bg=rgb_hex(color), activebackground=rgb_hex(color), fg="#FFFFFF")
 
     # ---------------- Persistence ----------------
-    def save_settings(self):
-        data = {
+    def build_settings_dict(self):
+        return {
             "background": list(self.background),
             "key_color": list(self.key_color),
             "brightness": int(self.brightness_level),
@@ -818,6 +834,9 @@ class Type84RGB:
             "cycle_loop_enabled": bool(self.cycle_loop_var.get()) if hasattr(self, "cycle_loop_var") else bool(self.cycle_loop_enabled),
             "cycle_commands": self.cycle_commands,
         }
+
+    def save_settings(self):
+        data = self.build_settings_dict()
         try:
             tmp = SETTINGS_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -826,6 +845,43 @@ class Type84RGB:
         except Exception:
             pass
 
+    def apply_settings_dict(self, data):
+        """Применяет словарь настроек (из основного файла или из профиля)
+        к текущему состоянию приложения. Не трогает UI/устройство —
+        это делают вызывающие методы (load_settings/load_profile)."""
+        self.background = clamp_color(data.get("background", self.background))
+        self.key_color = clamp_color(data.get("key_color", self.key_color))
+        self.brightness_level = max(0, min(255, int(data.get("brightness", 255))))
+        self.brightness_var.set(self.brightness_level)
+
+        saved_colors = data.get("per_key_colors", [])
+        if isinstance(saved_colors, list) and len(saved_colors) == LED_COUNT:
+            self.per_key_colors = [clamp_color(c) for c in saved_colors]
+
+        self.selected_keys = {int(i) for i in data.get("selected_keys", []) if int(i) in KEY_INDEX.values()}
+        self.custom_mode_active = bool(data.get("custom_mode_active", False))
+        self.dark_mode = bool(data.get("dark_mode", False))
+
+        self.cycle_loop_enabled = bool(data.get("cycle_loop_enabled", False))
+        self.cycle_loop_var.set(self.cycle_loop_enabled)
+
+        loaded_commands = []
+        for command in data.get("cycle_commands", []):
+            keys = [int(i) for i in command.get("keys", []) if 0 <= int(i) < LED_COUNT]
+            if not keys:
+                continue
+            color = list(clamp_color(command.get("color", [255, 0, 0])))
+            interval = max(0.01, float(command.get("interval", 1.0)))
+            loaded_commands.append({"keys": keys, "color": color, "interval": interval})
+        self.cycle_commands = loaded_commands
+
+        if self.selected_keys:
+            self.selected_key_index = next(iter(self.selected_keys))
+            self.selected_key_name = next((n for n, i in KEY_INDEX.items() if i == self.selected_key_index), None)
+        else:
+            self.selected_key_index = None
+            self.selected_key_name = None
+
     def load_settings(self):
         if not os.path.exists(SETTINGS_FILE):
             self.update_selection_label()
@@ -833,37 +889,7 @@ class Type84RGB:
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
-            self.background = clamp_color(data.get("background", self.background))
-            self.key_color = clamp_color(data.get("key_color", self.key_color))
-            self.brightness_level = max(0, min(255, int(data.get("brightness", 255))))
-            self.brightness_var.set(self.brightness_level)
-
-            saved_colors = data.get("per_key_colors", [])
-            if isinstance(saved_colors, list) and len(saved_colors) == LED_COUNT:
-                self.per_key_colors = [clamp_color(c) for c in saved_colors]
-
-            self.selected_keys = {int(i) for i in data.get("selected_keys", []) if int(i) in KEY_INDEX.values()}
-            self.custom_mode_active = bool(data.get("custom_mode_active", False))
-            self.dark_mode = bool(data.get("dark_mode", False))
-
-            self.cycle_loop_enabled = bool(data.get("cycle_loop_enabled", False))
-            self.cycle_loop_var.set(self.cycle_loop_enabled)
-
-            loaded_commands = []
-            for command in data.get("cycle_commands", []):
-                keys = [int(i) for i in command.get("keys", []) if 0 <= int(i) < LED_COUNT]
-                if not keys:
-                    continue
-                color = list(clamp_color(command.get("color", [255, 0, 0])))
-                interval = max(0.01, float(command.get("interval", 1.0)))
-                loaded_commands.append({"keys": keys, "color": color, "interval": interval})
-            self.cycle_commands = loaded_commands
-
-            if self.selected_keys:
-                self.selected_key_index = next(iter(self.selected_keys))
-                self.selected_key_name = next((n for n, i in KEY_INDEX.items() if i == self.selected_key_index), None)
-
+            self.apply_settings_dict(data)
             self.update_selection_label()
             self.rebuild_cycle_rows()
         except Exception:
@@ -871,6 +897,62 @@ class Type84RGB:
             self.cycle_commands = []
             self.selected_keys.clear()
             self.update_selection_label()
+
+    # ---------------- Именованные профили (доп. сохранение/загрузка) ----------------
+    def save_profile(self):
+        """Сохраняет текущее состояние (цвета, команды переливания, тему и
+        т.д.) в отдельный файл-профиль, который можно позже загрузить."""
+        path = filedialog.asksaveasfilename(
+            title="Сохранить профиль как",
+            initialdir=os.path.dirname(SETTINGS_FILE),
+            defaultextension=".json",
+            filetypes=[("Профиль Type 84 RGB", "*.json")],
+        )
+        if not path:
+            return
+        data = self.build_settings_dict()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self.status.set(f"💾 Профиль сохранён: {os.path.basename(path)}")
+        except Exception as e:
+            messagebox.showerror("Ошибка сохранения", str(e))
+
+    def load_profile(self):
+        """Загружает ранее сохранённый профиль и применяет его: обновляет
+        UI, при необходимости отправляет состояние на клавиатуру, и делает
+        загруженный профиль текущим (он же будет восстановлен при
+        следующем обычном запуске приложения)."""
+        path = filedialog.askopenfilename(
+            title="Загрузить профиль",
+            initialdir=os.path.dirname(SETTINGS_FILE),
+            filetypes=[("Профиль Type 84 RGB", "*.json"), ("Все файлы", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.apply_settings_dict(data)
+        except Exception as e:
+            messagebox.showerror("Ошибка загрузки", str(e))
+            return
+
+        self.update_selection_label()
+        self.refresh_key_buttons()
+        self.rebuild_cycle_rows()
+        self.apply_theme()
+
+        if self.device:
+            if self.custom_mode_active:
+                self.send_per_key_state()
+            else:
+                self.send(self.make_static(*self.background), log=False)
+
+        # Загруженный профиль становится текущим состоянием — при обычном
+        # запуске приложения (без выбора профиля) оно тоже будет восстановлено.
+        self.save_settings()
+        self.status.set(f"📂 Профиль загружен: {os.path.basename(path)}")
 
     # ---------------- Close ----------------
     def close(self):
